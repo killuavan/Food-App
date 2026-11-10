@@ -9,9 +9,11 @@
     "preview": "vite preview",
     "test:e2e": "cypress run",
     "test:unit": "vitest",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "migrate:firebase": "node scripts/migrate-firebase.mjs"
   },
   "dependencies": {
+    "@capacitor-mlkit/barcode-scanning": "^8.2.2",
     "@capacitor/app": "8.1.2",
     "@capacitor/core": "8.5.3",
     "@capacitor/haptics": "8.0.2",
@@ -19,7 +21,10 @@
     "@capacitor/status-bar": "8.0.4",
     "@ionic/vue": "^9.0.0",
     "@ionic/vue-router": "^9.0.0",
+    "@supabase/supabase-js": "^2.119.0",
+    "chart.js": "^4.6.1",
     "ionicons": "^8.1.0",
+    "jspdf": "^4.2.1",
     "vue": "^3.5.0",
     "vue-router": "^5.0.0"
   },
@@ -32,6 +37,7 @@
     "cypress": "^13.5.0",
     "eslint": "^8.35.0",
     "eslint-plugin-vue": "^9.9.0",
+    "firebase-admin": "^14.5.0",
     "jsdom": "^22.1.0",
     "terser": "^5.16.0",
     "typescript": "~5.9.0",

@@ -1,0 +1,555 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/weeklyMealPlans/{planId} {
+      allow read, delete: if request.auth != null
+        && request.auth.uid == userId;
+
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && isValidWeeklyMealPlan(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow update: if request.auth != null
+        && request.auth.uid == userId
+        && isValidWeeklyMealPlan(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    match /users/{userId}/weeklyMealFavorites/{recipeId} {
+      allow read, delete: if request.auth != null
+        && request.auth.uid == userId;
+
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && isValidWeeklyMealFavorite(request.resource.data, recipeId)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow update: if request.auth != null
+        && request.auth.uid == userId
+        && isValidWeeklyMealFavorite(request.resource.data, recipeId)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    match /users/{userId}/healthProfile/{profileId} {
+      allow read, delete: if request.auth != null
+        && request.auth.uid == userId
+        && profileId == 'current';
+
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && profileId == 'current'
+        && isValidHealthProfile(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow update: if request.auth != null
+        && request.auth.uid == userId
+        && profileId == 'current'
+        && isValidHealthProfile(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    match /users/{userId}/inventoryItems/{itemId} {
+      allow read, delete: if request.auth != null
+        && request.auth.uid == userId;
+
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && isValidFoodItem(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow update: if request.auth != null
+        && request.auth.uid == userId
+        && isValidFoodItem(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    match /users/{userId}/inventoryMovements/{movementId} {
+      allow read: if request.auth != null
+        && request.auth.uid == userId;
+
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && isValidInventoryMovement(request.resource.data)
+        && request.resource.data.createdAt == request.time;
+
+      allow update, delete: if false;
+    }
+
+    match /users/{userId}/groceryItems/{itemId} {
+      allow read, delete: if request.auth != null
+        && request.auth.uid == userId;
+
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && isValidGroceryItem(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow update: if request.auth != null
+        && request.auth.uid == userId
+        && isValidGroceryItem(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    match /users/{userId}/consumptionLogs/{recordId} {
+      allow read, delete: if request.auth != null
+        && request.auth.uid == userId;
+
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && isValidConsumptionRecord(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow update: if request.auth != null
+        && request.auth.uid == userId
+        && isValidConsumptionRecord(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function isValidWeeklyMealPlan(data) {
+      return data.keys().hasOnly([
+          'weekStartDate',
+          'meals',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasAll([
+          'weekStartDate',
+          'meals',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.weekStartDate is string
+        && data.weekStartDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.meals is list
+        && data.meals.size() <= 28
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidWeeklyMealFavorite(data, recipeId) {
+      return data.keys().hasOnly([
+          'recipeId',
+          'recipeName',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasAll([
+          'recipeId',
+          'recipeName',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.recipeId == recipeId
+        && data.recipeName is string
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidHealthProfile(data) {
+      return data.keys().hasOnly([
+          'dateOfBirth',
+          'age',
+          'heightCm',
+          'weightKg',
+          'activityLevel',
+          'dietaryPreferences',
+          'foodAllergies',
+          'fitnessGoal',
+          'bmiValue',
+          'bmiCalculatedAt',
+          'profileCompleted',
+          'onboardingCompleted',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasAll([
+          'profileCompleted',
+          'onboardingCompleted',
+          'createdAt',
+          'updatedAt'
+        ])
+        && (!data.keys().hasAny(['dateOfBirth'])
+          || data.dateOfBirth is string)
+        && (!data.keys().hasAny(['age'])
+          || data.age == null
+          || (data.age is int && data.age >= 0 && data.age <= 120))
+        && (!data.keys().hasAny(['heightCm'])
+          || data.heightCm == null
+          || (data.heightCm is number && data.heightCm >= 30 && data.heightCm <= 250))
+        && (!data.keys().hasAny(['weightKg'])
+          || data.weightKg == null
+          || (data.weightKg is number && data.weightKg > 0 && data.weightKg <= 500))
+        && (!data.keys().hasAny(['activityLevel'])
+          || data.activityLevel in [
+            '',
+            'Sedentary',
+            'Lightly Active',
+            'Moderately Active',
+            'Very Active'
+          ])
+        && (!data.keys().hasAny(['dietaryPreferences']) || data.dietaryPreferences is string)
+        && (!data.keys().hasAny(['foodAllergies']) || data.foodAllergies is string)
+        && (!data.keys().hasAny(['fitnessGoal']) || data.fitnessGoal is string)
+        && (!data.keys().hasAny(['bmiValue'])
+          || data.bmiValue == null
+          || data.bmiValue is number)
+        && (!data.keys().hasAny(['bmiCalculatedAt'])
+          || data.bmiCalculatedAt == null
+          || data.bmiCalculatedAt is timestamp)
+        && data.profileCompleted is bool
+        && data.onboardingCompleted is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidConsumptionRecord(data) {
+      return data.keys().hasOnly([
+          'inventoryItemId',
+          'foodName',
+          'foodCategory',
+          'inventoryUnit',
+          'mealCategory',
+          'quantityConsumed',
+          'measurementUnit',
+          'consumptionDate',
+          'consumptionTime',
+          'notes',
+          'nutritionSnapshot',
+          'inventoryDeduction',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasAll([
+          'inventoryItemId',
+          'foodName',
+          'foodCategory',
+          'inventoryUnit',
+          'mealCategory',
+          'quantityConsumed',
+          'measurementUnit',
+          'consumptionDate',
+          'consumptionTime',
+          'notes',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.inventoryItemId is string
+        && data.inventoryItemId.size() > 0
+        && data.foodName is string
+        && data.foodName.size() > 0
+        && data.foodCategory in [
+          'Fruits',
+          'Vegetables',
+          'Meat',
+          'Seafood',
+          'Dairy',
+          'Grains',
+          'Beverages',
+          'Snacks',
+          'Canned Goods',
+          'Others'
+        ]
+        && data.inventoryUnit in ['g', 'kg', 'mL', 'L', 'pcs', 'packs']
+        && data.mealCategory in ['Breakfast', 'Lunch', 'Dinner', 'Snacks']
+        && data.quantityConsumed is number
+        && data.quantityConsumed > 0
+        && data.measurementUnit in ['g', 'kg', 'mL', 'L', 'pcs', 'packs', 'servings']
+        && data.consumptionDate is string
+        && data.consumptionDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.consumptionTime is string
+        && data.consumptionTime.matches('^[0-9]{2}:[0-9]{2}$')
+        && data.notes is string
+        && (!data.keys().hasAny(['nutritionSnapshot'])
+          || data.nutritionSnapshot == null
+          || isValidNutritionProfile(data.nutritionSnapshot))
+        && (!data.keys().hasAny(['inventoryDeduction'])
+          || data.inventoryDeduction == null
+          || isValidInventoryDeduction(data.inventoryDeduction))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidInventoryDeduction(deduction) {
+      return deduction is map
+        && deduction.keys().hasOnly([
+          'inventoryItemId',
+          'quantity',
+          'unit',
+          'revision'
+        ])
+        && deduction.keys().hasAll([
+          'inventoryItemId',
+          'quantity',
+          'unit',
+          'revision'
+        ])
+        && deduction.inventoryItemId is string
+        && deduction.inventoryItemId.size() > 0
+        && deduction.quantity is number
+        && deduction.quantity > 0
+        && deduction.unit in ['g', 'kg', 'mL', 'L', 'pcs', 'packs']
+        && deduction.revision is int
+        && deduction.revision > 0;
+    }
+
+    function isValidInventoryMovement(data) {
+      return data.keys().hasOnly([
+          'inventoryItemId',
+          'consumptionLogId',
+          'groceryItemId',
+          'movementType',
+          'quantity',
+          'unit',
+          'quantityBefore',
+          'quantityAfter',
+          'inventoryItemMissing',
+          'createdAt'
+        ])
+        && data.keys().hasAll([
+          'inventoryItemId',
+          'movementType',
+          'quantity',
+          'unit',
+          'quantityBefore',
+          'quantityAfter',
+          'createdAt'
+        ])
+        && data.inventoryItemId is string
+        && data.inventoryItemId.size() > 0
+        && (!data.keys().hasAny(['consumptionLogId'])
+          || data.consumptionLogId == null
+          || (data.consumptionLogId is string && data.consumptionLogId.size() > 0))
+        && (!data.keys().hasAny(['groceryItemId'])
+          || (data.groceryItemId is string && data.groceryItemId.size() > 0))
+        && data.movementType in [
+          'CONSUMPTION',
+          'CONSUMPTION_ADJUSTMENT',
+          'CONSUMPTION_REVERSAL',
+          'MANUAL_RESTOCK'
+        ]
+        && data.quantity is number
+        && data.quantity >= 0
+        && data.unit in ['g', 'kg', 'mL', 'L', 'pcs', 'packs']
+        && (data.quantityBefore == null || (data.quantityBefore is number && data.quantityBefore >= 0))
+        && (data.quantityAfter == null || (data.quantityAfter is number && data.quantityAfter >= 0))
+        && (!data.keys().hasAny(['inventoryItemMissing']) || data.inventoryItemMissing is bool)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidGroceryItem(data) {
+      return data.keys().hasOnly([
+          'shoppingListId',
+          'inventoryItemId',
+          'name',
+          'category',
+          'quantity',
+          'unit',
+          'status',
+          'source',
+          'notes',
+          'createdAt',
+          'updatedAt',
+          'purchasedAt',
+          'restockedAt',
+          'restockedInventoryItemId',
+          'restockedQuantity',
+          'restockedUnit',
+          'purchaseDate'
+        ])
+        && data.keys().hasAll([
+          'shoppingListId',
+          'inventoryItemId',
+          'name',
+          'category',
+          'quantity',
+          'unit',
+          'status',
+          'source',
+          'notes',
+          'createdAt',
+          'updatedAt',
+          'purchasedAt',
+          'restockedAt',
+          'restockedInventoryItemId',
+          'restockedQuantity',
+          'restockedUnit'
+        ])
+        && data.shoppingListId is string
+        && data.shoppingListId == 'default'
+        && (data.inventoryItemId == null || (data.inventoryItemId is string && data.inventoryItemId.size() > 0))
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 200
+        && data.category in [
+          'Fruits',
+          'Vegetables',
+          'Grains',
+          'Meat and Poultry',
+          'Fish and Seafood',
+          'Dairy',
+          'Meat',
+          'Seafood',
+          'Snacks',
+          'Canned Goods',
+          'Eggs',
+          'Beverages',
+          'Pantry Essentials',
+          'Others'
+        ]
+        && data.quantity is number
+        && data.quantity > 0
+        && data.unit in ['g', 'kg', 'mL', 'L', 'pcs', 'packs']
+        && data.status in ['PENDING', 'PURCHASED', 'CANCELLED']
+        && data.source in ['MANUAL', 'LOW_STOCK', 'OUT_OF_STOCK', 'WEEKLY_MEAL_PLAN']
+        && data.notes is string
+        && data.notes.size() <= 500
+        && (data.purchasedAt == null || data.purchasedAt is timestamp)
+        && (data.restockedAt == null || data.restockedAt is timestamp)
+        && (data.restockedInventoryItemId == null
+          || (data.restockedInventoryItemId is string && data.restockedInventoryItemId.size() > 0))
+        && (data.restockedQuantity == null
+          || (data.restockedQuantity is number && data.restockedQuantity > 0))
+        && (data.restockedUnit == null || data.restockedUnit in ['g', 'kg', 'mL', 'L', 'pcs', 'packs'])
+        && (!data.keys().hasAny(['purchaseDate'])
+          || (data.purchaseDate is string && data.purchaseDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidNutritionProfile(profile) {
+      return profile is map
+        && profile.keys().hasOnly([
+          'fdcId',
+          'description',
+          'dataType',
+          'foodCategory',
+          'brandOwner',
+          'householdServing',
+          'servingSize',
+          'servingSizeUnit',
+          'basisGrams',
+          'basisMilliliters',
+          'basisDescription',
+          'nutrients',
+          'portions',
+          'source',
+          'sourceProductId'
+        ])
+        && profile.keys().hasAll([
+          'fdcId',
+          'description',
+          'dataType',
+          'foodCategory',
+          'brandOwner',
+          'householdServing',
+          'servingSize',
+          'servingSizeUnit',
+          'basisGrams',
+          'basisDescription',
+          'nutrients',
+          'portions',
+          'source'
+        ])
+        && (profile.fdcId == null
+          || (profile.fdcId is int && profile.fdcId > 0))
+        && profile.description is string
+        && profile.dataType is string
+        && profile.foodCategory is string
+        && profile.brandOwner is string
+        && profile.householdServing is string
+        && (profile.servingSize == null || profile.servingSize is number)
+        && profile.servingSizeUnit is string
+        && (profile.basisGrams == null || profile.basisGrams is number)
+        && (!profile.keys().hasAny(['basisMilliliters'])
+          || profile.basisMilliliters == null
+          || profile.basisMilliliters is number)
+        && profile.basisDescription is string
+        && profile.nutrients is map
+        && profile.portions is list
+        && (profile.source == 'USDA FoodData Central'
+          || (profile.source == 'Open Food Facts'
+            && profile.sourceProductId is string));
+    }
+
+    function isValidFoodItem(data) {
+      return data.keys().hasOnly([
+          'foodName',
+          'normalizedName',
+          'category',
+          'quantity',
+          'unit',
+          'lowStockThreshold',
+          'purchaseDate',
+          'expirationDate',
+          'storageLocation',
+          'notes',
+          'nutritionProfile',
+          'barcode',
+          'brand',
+          'productImageUrl',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasAll([
+          'foodName',
+          'normalizedName',
+          'category',
+          'quantity',
+          'unit',
+          'lowStockThreshold',
+          'purchaseDate',
+          'expirationDate',
+          'storageLocation',
+          'notes',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.foodName is string
+        && data.foodName.size() > 0
+        && data.normalizedName is string
+        && data.category in [
+          'Fruits',
+          'Vegetables',
+          'Meat',
+          'Seafood',
+          'Dairy',
+          'Grains',
+          'Beverages',
+          'Snacks',
+          'Canned Goods',
+          'Others'
+        ]
+        && data.quantity is number
+        && data.quantity >= 0
+        && data.lowStockThreshold is number
+        && data.lowStockThreshold >= 0
+        && data.unit in ['g', 'kg', 'mL', 'L', 'pcs', 'packs']
+        && data.purchaseDate is string
+        && data.expirationDate is string
+        && data.storageLocation is string
+        && data.notes is string
+        && (!data.keys().hasAny(['barcode']) || data.barcode is string)
+        && (!data.keys().hasAny(['brand']) || data.brand is string)
+        && (!data.keys().hasAny(['productImageUrl']) || data.productImageUrl is string)
+        && (!data.keys().hasAny(['nutritionProfile'])
+          || data.nutritionProfile == null
+          || isValidNutritionProfile(data.nutritionProfile))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+  }
+}
