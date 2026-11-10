@@ -68,7 +68,6 @@ async function login(): Promise<void> {
   loading.value = true;
   try {
     await signInWithGoogle();
-    await router.replace('/home');
   } catch (error) {
     authError.value = error instanceof Error ? error.message : String(error);
   } finally {

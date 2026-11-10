@@ -29,7 +29,9 @@ In **Authentication → Sign In / Providers → Google**, enable Google and ente
 Then in **Authentication → URL Configuration**, set:
 
 - **Site URL** to the app's local origin while testing (for example `http://localhost:5173`).
-- **Redirect URLs** to include the same local origin and the production app URL when available.
+- **Redirect URLs** to include the same local origin, `io.killuavan.foodapp://auth/callback`, and the production app URL when available.
+
+On Android, Google sign-in opens the system browser and returns to the app through `io.killuavan.foodapp://auth/callback`. Add this exact URL under Supabase **Authentication → URL Configuration → Redirect URLs**. Keep the Google Cloud authorized redirect URI set to the Supabase callback URL shown in the Google provider settings; it is different from the app deep link.
 
 The app also needs a Google OAuth client configured for the Supabase provider; the old Firebase Google provider settings do not automatically carry over.
 
