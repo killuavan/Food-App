@@ -2,7 +2,7 @@
   <ion-header class="app-header">
     <ion-toolbar class="main-toolbar">
       <router-link to="/home" class="brand" slot="start" aria-label="Pantry and Plate home">
-        <span class="brand-mark"><ion-icon :icon="leafOutline" aria-hidden="true" /></span>
+        <span class="brand-mark"><img src="/images/pantry-plate-mark.svg" alt="" /></span>
         <span class="brand-copy">
           <strong>Pantry<span>&amp;</span>Plate</strong>
           <small>Food, thoughtfully managed</small>
@@ -110,7 +110,8 @@ function isActive(path: string): boolean {
 .app-header { border-bottom: 1px solid var(--app-border); background: var(--app-card); box-shadow: 0 3px 14px rgb(28 65 48 / 4%); }
 .main-toolbar { --background: var(--app-card); --color: var(--app-text); --min-height: 68px; --padding-start: max(16px, calc((100vw - 1200px) / 2)); --padding-end: max(12px, calc((100vw - 1200px) / 2)); }
 .brand { display: flex; align-items: center; gap: 9px; color: inherit; text-decoration: none; }
-.brand-mark { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 13px; background: #e8f5e9; color: #2e7d32; font-size: 1.25rem; }
+.brand-mark { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 13px; overflow: hidden; }
+.brand-mark img { width: 100%; height: 100%; }
 .brand-copy { display: grid; gap: 1px; }
 .brand-copy strong { color: #1f2937; font-size: .99rem; letter-spacing: -.03em; }
 .brand-copy strong span { color: #2e7d32; }
