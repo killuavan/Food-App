@@ -2,7 +2,7 @@
   <ion-header class="app-header">
     <ion-toolbar class="main-toolbar">
       <router-link to="/home" class="brand" slot="start" aria-label="Pantry and Plate home">
-        <span class="brand-mark"><img src="/images/pantry-plate-mark.svg" alt="" /></span>
+        <span class="brand-mark"><img :src="brandMark" alt="" /></span>
         <span class="brand-copy">
           <strong>Pantry<span>&amp;</span>Plate</strong>
           <small>Food, thoughtfully managed</small>
@@ -80,6 +80,7 @@ import {
 } from '../services/authService';
 
 const route = useRoute();
+const brandMark = '/images/pantry-plate-mark.svg';
 const mobileLinks = [
   { route: '/home', label: 'Home', icon: gridOutline },
   { route: '/daily-nutrition', label: 'Nutrition', icon: analyticsOutline },

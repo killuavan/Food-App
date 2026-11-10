@@ -42,15 +42,28 @@ export function initializeAuthState(): void {
   }
 }
 
-export function waitForAuthStateReady(): Promise<void> {
+export function waitForAuthStateReady(timeoutMs = 10_000): Promise<void> {
   if (authStateReady.value) return Promise.resolve();
   initializeAuthState();
   return new Promise((resolve) => {
-    const stop = watch(authStateReady, (ready) => {
-      if (!ready) return;
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       stop();
       resolve();
-    }, { immediate: true });
+    };
+    const stop = watch(authStateReady, (ready) => {
+      if (ready) finish();
+    });
+    const timer = setTimeout(() => {
+      if (!authStateReady.value) {
+        authStateError.value = 'Supabase connection is taking too long. Check your internet connection and retry.';
+      }
+      finish();
+    }, timeoutMs);
+    if (authStateReady.value) finish();
   });
 }
 

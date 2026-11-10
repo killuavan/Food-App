@@ -96,6 +96,22 @@ const routes: Array<RouteRecordRaw> = [
   },
 ];
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
@@ -111,7 +127,12 @@ router.beforeEach(async (to) => {
   if (to.name === 'HealthProfile') return true;
 
   try {
-    return await hasCompletedHealthOnboarding(user.uid) ? true : '/health-profile';
+    const completedOnboarding = await withTimeout(
+      hasCompletedHealthOnboarding(user.uid),
+      10_000,
+      'Checking your health profile timed out.',
+    );
+    return completedOnboarding ? true : '/health-profile';
   } catch {
     return { name: 'HealthProfile', query: { profileError: 'load' } };
   }
