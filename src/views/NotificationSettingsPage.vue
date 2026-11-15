@@ -5,7 +5,7 @@
       <main class="notification-page">
         <header class="page-hero">
           <div>
-            <h1>Email notifications</h1>
+            <h1>Notifications</h1>
           </div>
           <ion-button fill="outline" router-link="/notifications/history">Notification history</ion-button>
         </header>
@@ -18,7 +18,26 @@
           <h2>Sign in to manage notifications</h2>
           <ion-button router-link="/sign-in">Continue to sign in</ion-button>
         </section>
-        <ion-card v-else-if="user" class="settings-card">
+        <template v-else-if="user">
+        <ion-card class="settings-card">
+          <ion-card-header>
+            <ion-card-title>Device notifications</ion-card-title>
+            <ion-card-subtitle>Grant notification permission on this device. Email alerts are managed separately.</ion-card-subtitle>
+          </ion-card-header>
+          <ion-card-content>
+            <p class="permission-status" :class="`permission-${devicePermission}`" role="status">
+              {{ devicePermissionMessage }}
+            </p>
+            <ion-button
+              v-if="devicePermission === 'prompt'"
+              :disabled="requestingPermission || loading"
+              @click="allowDeviceNotifications"
+            >
+              {{ requestingPermission ? 'Requesting permission…' : 'Allow notifications' }}
+            </ion-button>
+          </ion-card-content>
+        </ion-card>
+        <ion-card class="settings-card">
           <ion-card-header>
             <ion-card-title>Email preferences</ion-card-title>
             <ion-card-subtitle>Alerts are evaluated hourly using your time zone and delivery schedule.</ion-card-subtitle>
@@ -66,17 +85,18 @@
             </div>
           </ion-card-content>
         </ion-card>
+        </template>
       </main>
     </ion-content>
   </ion-page>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import {
   IonButton, IonCard, IonCardContent, IonCardHeader, IonCardSubtitle, IonCardTitle,
   IonContent, IonInput, IonItem, IonLabel, IonPage, IonProgressBar, IonSelect,
-  IonSelectOption, IonToggle,
+  IonSelectOption, IonToggle, onIonViewWillEnter,
 } from '@ionic/vue';
 import AppNavigation from '../components/AppNavigation.vue';
 import { observeAuth, type AuthenticatedUser } from '../services/authService';
@@ -86,13 +106,25 @@ import {
   saveNotificationPreferences,
   type NotificationPreferences,
 } from '../services/notificationService';
+import {
+  getDeviceNotificationPermission,
+  requestDeviceNotificationPermission,
+} from '../services/deviceNotificationPermissionService';
 
 const user = ref<AuthenticatedUser | null>(null);
 const preferences = reactive<NotificationPreferences>(defaultNotificationPreferences());
 const loading = ref(true);
 const saving = ref(false);
+const requestingPermission = ref(false);
+const devicePermission = ref<'granted' | 'denied' | 'prompt' | 'unsupported'>('prompt');
 const error = ref(false);
 const message = ref('');
+const devicePermissionMessage = computed(() => {
+  if (devicePermission.value === 'granted') return 'Notifications are allowed on this device.';
+  if (devicePermission.value === 'denied') return 'Notifications are blocked. Allow them in your device or browser settings.';
+  if (devicePermission.value === 'unsupported') return 'This device or browser does not support app notifications.';
+  return 'Notifications are not enabled yet.';
+});
 const alertOptions = [
   { key: 'food_expiring_enabled', label: 'Food approaching its expiration date' },
   { key: 'food_expired_enabled', label: 'Food past its expiration date' },
@@ -108,6 +140,9 @@ onMounted(() => {
     const version = ++requestVersion;
     if (nextUser) {
       loading.value = true;
+      void getDeviceNotificationPermission().then((permission) => {
+        if (version === requestVersion) devicePermission.value = permission;
+      }).catch(showError);
       void getNotificationPreferences(nextUser.id).then((saved) => {
         if (version === requestVersion) Object.assign(preferences, saved);
       }).catch(showError).finally(() => {
@@ -119,6 +154,39 @@ onMounted(() => {
   }, showError);
 });
 onUnmounted(() => unsubscribe?.());
+onIonViewWillEnter(() => {
+  void refreshDevicePermission();
+});
+
+async function refreshDevicePermission(): Promise<void> {
+  try {
+    devicePermission.value = await getDeviceNotificationPermission();
+  } catch (permissionError) {
+    showError(permissionError);
+  }
+}
+
+async function allowDeviceNotifications(): Promise<void> {
+  requestingPermission.value = true;
+  error.value = false;
+  message.value = '';
+  try {
+    devicePermission.value = await requestDeviceNotificationPermission();
+    if (devicePermission.value === 'granted') {
+      message.value = 'Device notifications are allowed.';
+    } else if (devicePermission.value === 'denied') {
+      message.value = 'Notifications are blocked. Allow them in your device or browser settings.';
+      error.value = true;
+    } else if (devicePermission.value === 'unsupported') {
+      message.value = 'This device or browser does not support app notifications.';
+      error.value = true;
+    }
+  } catch (permissionError) {
+    showError(permissionError);
+  } finally {
+    requestingPermission.value = false;
+  }
+}
 
 async function save(): Promise<void> {
   if (!user.value) return;
@@ -154,6 +222,9 @@ function showError(value: unknown): void {
 h1 { margin: 4px 0 8px; font-size: clamp(1.8rem, 5vw, 2.5rem); }
 .page-hero p:last-child { color: #65736b; }
 .settings-card { border: 1px solid var(--app-border); border-radius: 18px; box-shadow: 0 8px 28px rgb(22 55 43 / 5%); }
+.permission-status { margin: 0 8px 12px; color: #65736b; font-size: .9rem; line-height: 1.5; }
+.permission-granted { color: #24633b; }
+.permission-denied { color: #943e33; }
 .preference-group { margin: 22px 0 12px; }
 .preference-group > h2 { margin: 0 16px 8px; font-size: 1rem; }
 .timezone-help { margin: 8px 16px; color: #65736b; font-size: .82rem; }
