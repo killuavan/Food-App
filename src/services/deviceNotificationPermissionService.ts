@@ -2,6 +2,11 @@ import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
 export type DeviceNotificationPermission = 'granted' | 'denied' | 'prompt' | 'unsupported';
+export const deviceNotificationPermissionChangedEventName = 'device-notification-permission-changed';
+
+export function notifyDeviceNotificationPermissionChanged(): void {
+  window.dispatchEvent(new Event(deviceNotificationPermissionChangedEventName));
+}
 
 export async function getDeviceNotificationPermission(): Promise<DeviceNotificationPermission> {
   if (Capacitor.isNativePlatform()) {

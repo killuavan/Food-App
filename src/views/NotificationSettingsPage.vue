@@ -22,7 +22,7 @@
         <ion-card class="settings-card">
           <ion-card-header>
             <ion-card-title>Device notifications</ion-card-title>
-            <ion-card-subtitle>Grant notification permission on this device. Email alerts are managed separately.</ion-card-subtitle>
+            <ion-card-subtitle>Food expiration reminders can appear while the app is closed on mobile. Browser reminders appear while the app is open.</ion-card-subtitle>
           </ion-card-header>
           <ion-card-content>
             <p class="permission-status" :class="`permission-${devicePermission}`" role="status">
@@ -34,6 +34,14 @@
               @click="allowDeviceNotifications"
             >
               {{ requestingPermission ? 'Requesting permission…' : 'Allow notifications' }}
+            </ion-button>
+            <ion-button
+              v-if="devicePermission === 'granted'"
+              fill="outline"
+              :disabled="sendingTestNotification"
+              @click="sendTestNotification"
+            >
+              {{ sendingTestNotification ? 'Sending test…' : 'Send test notification' }}
             </ion-button>
           </ion-card-content>
         </ion-card>
@@ -108,14 +116,17 @@ import {
 } from '../services/notificationService';
 import {
   getDeviceNotificationPermission,
+  notifyDeviceNotificationPermissionChanged,
   requestDeviceNotificationPermission,
 } from '../services/deviceNotificationPermissionService';
+import { sendTestDeviceNotification } from '../services/foodExpirationNotificationService';
 
 const user = ref<AuthenticatedUser | null>(null);
 const preferences = reactive<NotificationPreferences>(defaultNotificationPreferences());
 const loading = ref(true);
 const saving = ref(false);
 const requestingPermission = ref(false);
+const sendingTestNotification = ref(false);
 const devicePermission = ref<'granted' | 'denied' | 'prompt' | 'unsupported'>('prompt');
 const error = ref(false);
 const message = ref('');
@@ -161,6 +172,7 @@ onIonViewWillEnter(() => {
 async function refreshDevicePermission(): Promise<void> {
   try {
     devicePermission.value = await getDeviceNotificationPermission();
+    if (devicePermission.value === 'granted') notifyDeviceNotificationPermissionChanged();
   } catch (permissionError) {
     showError(permissionError);
   }
@@ -174,6 +186,7 @@ async function allowDeviceNotifications(): Promise<void> {
     devicePermission.value = await requestDeviceNotificationPermission();
     if (devicePermission.value === 'granted') {
       message.value = 'Device notifications are allowed.';
+      notifyDeviceNotificationPermissionChanged();
     } else if (devicePermission.value === 'denied') {
       message.value = 'Notifications are blocked. Allow them in your device or browser settings.';
       error.value = true;
@@ -185,6 +198,20 @@ async function allowDeviceNotifications(): Promise<void> {
     showError(permissionError);
   } finally {
     requestingPermission.value = false;
+  }
+}
+
+async function sendTestNotification(): Promise<void> {
+  sendingTestNotification.value = true;
+  error.value = false;
+  message.value = '';
+  try {
+    await sendTestDeviceNotification();
+    message.value = 'Test notification sent. Check your notification tray.';
+  } catch (testError) {
+    showError(testError);
+  } finally {
+    sendingTestNotification.value = false;
   }
 }
 

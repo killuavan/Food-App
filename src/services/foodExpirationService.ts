@@ -8,6 +8,8 @@ function alertShownKey(userId: string): string {
   return `food-inventory.expiration-alert-shown.${userId}`;
 }
 
+export const expirationWarningDaysUpdatedEventName = 'expiration-warning-days-updated';
+
 export function getExpirationWarningDays(userId: string): number {
   let saved: string | null;
   try {
@@ -28,6 +30,7 @@ export function saveExpirationWarningDays(userId: string, warningDays: number): 
   }
   try {
     window.localStorage.setItem(warningPreferenceKey(userId), String(warningDays));
+    window.dispatchEvent(new CustomEvent(expirationWarningDaysUpdatedEventName, { detail: { userId } }));
   } catch (error) {
     throw new Error(`Unable to save expiration alert settings: ${String(error)}`);
   }

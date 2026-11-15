@@ -23,10 +23,17 @@ import { App as CapacitorApp } from '@capacitor/app';
 import { IonAlert, IonToast } from '@ionic/vue';
 import { observeAuth } from '../services/authService';
 import {
+  expirationWarningDaysUpdatedEventName,
   getExpirationWarningDays,
   hasShownExpirationAlertToday,
   markExpirationAlertShownToday,
 } from '../services/foodExpirationService';
+import {
+  clearFoodExpirationNotifications,
+  showBrowserExpirationNotification,
+  syncFoodExpirationNotifications,
+} from '../services/foodExpirationNotificationService';
+import { deviceNotificationPermissionChangedEventName } from '../services/deviceNotificationPermissionService';
 import {
   foodInventoryUpdatedEventName,
   listFoodItems,
@@ -49,7 +56,13 @@ const alertButtons = [
 
 onMounted(() => {
   unsubscribeAuth = observeAuth((user) => {
+    const previousUserId = activeUserId;
     activeUserId = user?.uid ?? null;
+    if (previousUserId && previousUserId !== activeUserId) {
+      void clearFoodExpirationNotifications(previousUserId).catch((error: unknown) => {
+        errorMessage.value = `Unable to clear old food reminders: ${error instanceof Error ? error.message : String(error)}`;
+      });
+    }
     if (activeUserId) void checkExpirations(activeUserId);
   }, (error) => {
     errorMessage.value = error.message;
@@ -57,6 +70,8 @@ onMounted(() => {
 
   document.addEventListener('visibilitychange', handleVisibilityChange);
   window.addEventListener(foodInventoryUpdatedEventName, handleInventoryUpdated);
+  window.addEventListener(expirationWarningDaysUpdatedEventName, handleWarningDaysUpdated);
+  window.addEventListener(deviceNotificationPermissionChangedEventName, handleNotificationPermissionChanged);
   void CapacitorApp.addListener('appStateChange', ({ isActive }) => {
     if (isActive && activeUserId) void checkExpirations(activeUserId);
   }).then((listener) => {
@@ -70,6 +85,8 @@ onUnmounted(() => {
   unsubscribeAuth?.();
   document.removeEventListener('visibilitychange', handleVisibilityChange);
   window.removeEventListener(foodInventoryUpdatedEventName, handleInventoryUpdated);
+  window.removeEventListener(expirationWarningDaysUpdatedEventName, handleWarningDaysUpdated);
+  window.removeEventListener(deviceNotificationPermissionChangedEventName, handleNotificationPermissionChanged);
   void foregroundListener?.remove();
 });
 
@@ -86,6 +103,17 @@ function handleInventoryUpdated(event: Event): void {
   }
 }
 
+function handleWarningDaysUpdated(event: Event): void {
+  const detail = (event as CustomEvent<{ userId?: string }>).detail;
+  if (detail?.userId && detail.userId === activeUserId) {
+    void checkExpirations(detail.userId);
+  }
+}
+
+function handleNotificationPermissionChanged(): void {
+  if (activeUserId) void checkExpirations(activeUserId);
+}
+
 async function checkExpirations(userId: string): Promise<void> {
   if (isChecking) {
     queuedUserId = userId;
@@ -99,6 +127,13 @@ async function checkExpirations(userId: string): Promise<void> {
     ];
     const items = await listFoodItems(userId);
     if (activeUserId !== userId) return;
+
+    const skippedReminders = await syncFoodExpirationNotifications(userId, items, warningDays);
+    if (skippedReminders > 0) {
+      errorMessage.value = `Only the 60 nearest expiration reminders can be scheduled on this device; ${skippedReminders} later reminders were skipped.`;
+    } else if (errorMessage.value.startsWith('Only the 60 nearest expiration reminders')) {
+      errorMessage.value = '';
+    }
 
     const warnings = getCurrentExpirationWarnings(items, warningDays);
     if (alertOpen.value) {
@@ -118,6 +153,11 @@ async function checkExpirations(userId: string): Promise<void> {
     const moreCount = warnings.length - lines.length;
     if (moreCount > 0) lines.push(`and ${moreCount} more item${moreCount === 1 ? '' : 's'}`);
 
+    try {
+      showBrowserExpirationNotification(lines.join('\n'));
+    } catch (notificationError) {
+      errorMessage.value = `Unable to show browser notification: ${notificationError instanceof Error ? notificationError.message : String(notificationError)}`;
+    }
     markExpirationAlertShownToday(userId);
     alertMessage.value = lines.join('\n');
     alertOpen.value = true;
