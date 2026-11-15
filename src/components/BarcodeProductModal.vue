@@ -8,35 +8,38 @@
     </ion-header>
     <ion-content class="barcode-content">
       <section class="barcode-panel">
-        <p class="eyebrow">PACKAGED FOOD LOOKUP</p>
-        <h2>Identify a food product</h2>
-        <p>Scan or enter a barcode to find product details.</p>
-
         <ion-button v-if="isNative" expand="block" :disabled="loading || scanning" @click="scanWithCamera">
           <ion-spinner v-if="scanning" name="crescent" />
           <ion-icon v-else slot="start" :icon="barcodeOutline" />
           {{ scanning ? 'Opening camera…' : 'Scan with camera' }}
         </ion-button>
-        <ion-note v-else>Camera scanning is available in the Android or iOS app. Use manual entry in the browser.</ion-note>
 
         <ion-item>
           <ion-input
             :value="barcode"
-            inputmode="numeric"
+            inputmode="text"
             autocomplete="off"
             label="Barcode"
             label-placement="stacked"
-            placeholder="8, 12, or 13 digits"
+            placeholder="Enter barcode"
             :disabled="loading || scanning"
-            @ionInput="barcode = $event.detail.value ?? ''"
+            @ionInput="handleBarcodeInput($event.detail.value ?? '')"
           />
         </ion-item>
-        <ion-button expand="block" fill="outline" :disabled="loading || scanning" @click="lookupBarcode">
-          <ion-spinner v-if="loading" name="crescent" />
-          {{ loading ? 'Looking up product…' : 'Look up barcode' }}
-        </ion-button>
+        <p v-if="loading" class="lookup-status" role="status">Looking up…</p>
         <ion-card v-if="errorMessage" color="danger">
           <ion-card-content role="alert">{{ errorMessage }}</ion-card-content>
+        </ion-card>
+        <ion-card v-if="scanNotice" class="not-found">
+          <ion-card-content>
+            <strong>{{ scanNotice.format }} scanned</strong>
+            <p class="scanned-value">{{ scanNotice.value }}</p>
+            <p>Food product lookup is available for EAN/UPC barcodes only. You can add this product manually.</p>
+            <div class="action-row">
+              <ion-button @click="emitManualInventory">Add product manually</ion-button>
+              <ion-button fill="outline" @click="resetLookup">Scan again</ion-button>
+            </div>
+          </ion-card-content>
         </ion-card>
         <ion-card v-if="notFound" class="not-found">
           <ion-card-content>
@@ -59,7 +62,8 @@
               <div><dt>Barcode</dt><dd>{{ product.barcode }}</dd></div>
               <div v-if="product.packageDescription"><dt>Package</dt><dd>{{ product.packageDescription }}</dd></div>
               <div v-if="product.servingSize"><dt>Serving size</dt><dd>{{ product.servingSize }}</dd></div>
-              <div v-if="product.categories"><dt>Categories</dt><dd>{{ product.categories }}</dd></div>
+              <div v-if="product.allergens"><dt>Allergens</dt><dd>{{ product.allergens }}</dd></div>
+              <div v-if="product.traces"><dt>May contain traces</dt><dd>{{ product.traces }}</dd></div>
             </dl>
             <div class="nutrient-grid">
               <div v-for="nutrient in displayedNutrients" :key="nutrient.id">
@@ -68,11 +72,14 @@
               </div>
             </div>
             <p v-if="product.ingredients" class="ingredients"><strong>Ingredients:</strong> {{ product.ingredients }}</p>
-            <p v-if="!product.nutritionProfile?.basisGrams && product.nutritionProfile?.basisMilliliters == null" class="nutrition-note">
+            <p v-if="!product.nutritionProfile" class="nutrition-note">
+              Nutrition values are not available for this barcode. You can still save the product to inventory.
+            </p>
+            <p v-if="product.nutritionProfile && !product.nutritionProfile.basisGrams && product.nutritionProfile.basisMilliliters == null" class="nutrition-note">
               Nutrition data may be incomplete or per 100 mL. Values are not scaled without a matching unit basis.
             </p>
             <div class="action-row">
-              <ion-button @click="emit('action', { action: 'add-inventory', product })">Add to inventory</ion-button>
+              <ion-button @click="emit('action', { action: 'add-inventory', product })">Save to inventory</ion-button>
               <ion-button fill="outline" @click="emit('action', { action: 'log-consumption', product })">Log consumption</ion-button>
               <ion-button fill="clear" @click="resetLookup">Scan again</ion-button>
             </div>
@@ -84,7 +91,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { Capacitor } from '@capacitor/core';
 import { BarcodeFormat, BarcodeScanner } from '@capacitor-mlkit/barcode-scanning';
 import {
@@ -97,7 +104,6 @@ import {
   IonInput,
   IonItem,
   IonModal,
-  IonNote,
   IonSpinner,
   IonTitle,
   IonToolbar,
@@ -110,7 +116,7 @@ import {
   type ScannedFoodProduct,
 } from '../services/openFoodFactsService';
 
-defineProps<{ isOpen: boolean }>();
+const props = defineProps<{ isOpen: boolean }>();
 const emit = defineEmits<{
   close: [];
   action: [payload: {
@@ -127,6 +133,10 @@ const loading = ref(false);
 const scanning = ref(false);
 const notFound = ref(false);
 const errorMessage = ref('');
+const scanNotice = ref<{ format: string; value: string } | null>(null);
+let lookupTimer: ReturnType<typeof setTimeout> | null = null;
+let lookupSequence = 0;
+const minimumLookupDelayMs = 450;
 const primaryNutrients = [
   { id: '208', name: 'Energy', unit: 'kcal' },
   { id: '268', name: 'Energy', unit: 'kJ' },
@@ -152,10 +162,53 @@ const displayedNutrients = computed(() => {
   return [...primaryNutrients, ...additional];
 });
 
+watch(() => props.isOpen, (isOpen) => {
+  if (!isOpen) {
+    clearLookupTimer();
+    lookupSequence += 1;
+    loading.value = false;
+    scanning.value = false;
+    return;
+  }
+  resetLookup();
+}, { immediate: true });
+
+onUnmounted(() => {
+  clearLookupTimer();
+  lookupSequence += 1;
+});
+
+function clearLookupTimer(): void {
+  if (lookupTimer) clearTimeout(lookupTimer);
+  lookupTimer = null;
+}
+
+function handleBarcodeInput(value: string): void {
+  barcode.value = value;
+  product.value = null;
+  notFound.value = false;
+  scanNotice.value = null;
+  errorMessage.value = '';
+  clearLookupTimer();
+  lookupSequence += 1;
+  const normalized = normalizeFoodBarcode(value);
+  if (!isSupportedFoodBarcode(normalized)) {
+    loading.value = false;
+    return;
+  }
+  lookupTimer = setTimeout(() => {
+    lookupTimer = null;
+    void lookupBarcode(normalized);
+  }, minimumLookupDelayMs);
+}
+
 async function scanWithCamera(): Promise<void> {
   if (!isNative || scanning.value || loading.value) return;
   scanning.value = true;
   errorMessage.value = '';
+  scanNotice.value = null;
+  product.value = null;
+  notFound.value = false;
   try {
     const support = await BarcodeScanner.isSupported();
     if (!support.supported) throw new Error('Barcode scanning is not supported on this device.');
@@ -170,11 +223,36 @@ async function scanWithCamera(): Promise<void> {
       if (!module.available) await BarcodeScanner.installGoogleBarcodeScannerModule();
     }
     const result = await BarcodeScanner.scan({
-      formats: [BarcodeFormat.Ean13, BarcodeFormat.Ean8, BarcodeFormat.UpcA, BarcodeFormat.UpcE],
+      formats: [
+        BarcodeFormat.Aztec,
+        BarcodeFormat.Codabar,
+        BarcodeFormat.Code39,
+        BarcodeFormat.Code93,
+        BarcodeFormat.Code128,
+        BarcodeFormat.DataMatrix,
+        BarcodeFormat.Ean8,
+        BarcodeFormat.Ean13,
+        BarcodeFormat.Itf,
+        BarcodeFormat.Pdf417,
+        BarcodeFormat.QrCode,
+        BarcodeFormat.UpcA,
+        BarcodeFormat.UpcE,
+      ],
     });
-    const value = result.barcodes[0]?.rawValue;
-    if (value) {
+    const scannedBarcode = result.barcodes[0];
+    const value = scannedBarcode?.rawValue;
+    if (value && scannedBarcode) {
       barcode.value = value;
+      if (!isFoodBarcodeFormat(scannedBarcode.format)) {
+        product.value = null;
+        notFound.value = false;
+        scanNotice.value = {
+          format: scannedBarcode.format.replaceAll('_', ' '),
+          value,
+        };
+        return;
+      }
+      scanNotice.value = null;
       await lookupBarcode(value);
     }
   } catch (error) {
@@ -186,25 +264,39 @@ async function scanWithCamera(): Promise<void> {
   }
 }
 
+function isFoodBarcodeFormat(format: BarcodeFormat): boolean {
+  return [
+    BarcodeFormat.Ean8,
+    BarcodeFormat.Ean13,
+    BarcodeFormat.UpcA,
+    BarcodeFormat.UpcE,
+  ].includes(format);
+}
+
 async function lookupBarcode(value = barcode.value): Promise<void> {
-  if (loading.value || scanning.value) return;
   const normalized = normalizeFoodBarcode(value);
   if (!isSupportedFoodBarcode(normalized)) {
     errorMessage.value = 'Enter a valid EAN-8, EAN-13, UPC-A, or UPC-E barcode.';
     return;
   }
   barcode.value = normalized;
+  const sequence = ++lookupSequence;
   loading.value = true;
   errorMessage.value = '';
   notFound.value = false;
+  scanNotice.value = null;
   product.value = null;
   try {
-    product.value = await getOpenFoodFactsProduct(normalized);
-    notFound.value = product.value === null;
+    const result = await getOpenFoodFactsProduct(normalized);
+    if (sequence !== lookupSequence) return;
+    product.value = result;
+    notFound.value = result === null;
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    if (sequence === lookupSequence) {
+      errorMessage.value = error instanceof Error ? error.message : String(error);
+    }
   } finally {
-    loading.value = false;
+    if (sequence === lookupSequence) loading.value = false;
   }
 }
 
@@ -215,10 +307,14 @@ function nutrientValue(id: string, unit: string): string {
 }
 
 function resetLookup(): void {
+  clearLookupTimer();
+  lookupSequence += 1;
   product.value = null;
   notFound.value = false;
+  scanNotice.value = null;
   errorMessage.value = '';
   barcode.value = '';
+  loading.value = false;
 }
 
 function emitManualInventory(): void {
@@ -229,9 +325,7 @@ function emitManualInventory(): void {
 <style scoped>
 .barcode-content { --background: #f7faf7; }
 .barcode-panel { width: min(680px, 100%); margin: 0 auto; padding: 20px 16px 38px; }
-.eyebrow { color: #2f8568; font-size: .7rem; font-weight: 750; letter-spacing: .1em; }
-.barcode-panel h2 { margin: 6px 0; color: #244737; }
-.barcode-panel > p { color: #6d7d72; line-height: 1.5; }
+.lookup-status { margin: 0; color: #39765b; font-size: .82rem; }
 .product-card, .not-found { margin: 14px 0; }
 .product-card ion-card-content { display: grid; gap: 9px; }
 .product-card img { width: 140px; max-height: 160px; object-fit: contain; margin: auto; }
@@ -240,6 +334,7 @@ function emitManualInventory(): void {
 .product-card dl div { display: grid; grid-template-columns: 110px 1fr; gap: 8px; }
 .product-card dt, .nutrient-grid span { color: #6d7d72; font-size: .78rem; }
 .product-card dd { margin: 0; overflow-wrap: anywhere; font-size: .82rem; }
+.scanned-value { overflow-wrap: anywhere; }
 .nutrient-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .nutrient-grid div { display: grid; gap: 3px; padding: 8px; border-radius: 9px; background: #f3f8f3; }
 .nutrient-grid strong { font-size: .84rem; }

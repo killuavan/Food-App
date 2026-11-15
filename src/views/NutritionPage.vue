@@ -22,6 +22,7 @@
             </div>
             <NutritionSearchPanel
               :initial-search="typeof route.query.search === 'string' ? route.query.search : ''"
+              :link-to-inventory="route.query.linkInventory === 'true'"
               @selected="selectProfile"
             />
           </section>
@@ -97,8 +98,11 @@
             </section>
             <ion-card v-else class="link-card">
               <ion-card-content>
-                <p v-if="profile" class="link-instructions">
-                  Confirm the USDA food above, select “Use this food”, then choose the matching pantry item here and link it.
+                <p v-if="route.query.linkInventory === 'true' && selectedInventoryItem" class="link-instructions">
+                  Selecting “Link this food” saves the USDA profile directly to {{ selectedInventoryItem.foodName }}.
+                </p>
+                <p v-else-if="profile" class="link-instructions">
+                  Select “Use this food”, then choose the matching pantry item here and link it.
                 </p>
                 <ion-item>
                   <ion-select
@@ -248,8 +252,18 @@ function selectInventoryFromRoute(value: unknown): void {
   }
 }
 
-function selectProfile(selected: NutritionProfile): void {
+async function selectProfile(selected: NutritionProfile): Promise<void> {
   profile.value = selected;
+  if (route.query.linkInventory !== 'true') return;
+  if (!user.value || !selectedInventoryItem.value) {
+    showToast('Choose a signed-in inventory item before linking nutrition.', 'danger');
+    return;
+  }
+  if (await saveLink()) {
+    const query = { ...route.query };
+    delete query.linkInventory;
+    await router.replace({ query });
+  }
 }
 
 function scaledValue(id: string): string {

@@ -53,6 +53,14 @@ describe('food inventory domain rules', () => {
     });
   });
 
+  test('validates an optional positive per-piece weight for piece-counted foods', () => {
+    const cabbage = { ...validDraft, foodName: 'Cabbage', category: 'Vegetables' as const, unit: 'pcs' as const };
+    expect(validateFoodItemDraft({ ...cabbage, pieceWeightGrams: 250 })).toEqual({});
+    expect(validateFoodItemDraft({ ...cabbage, pieceWeightGrams: 0 }))
+      .toMatchObject({ pieceWeightGrams: expect.any(String) });
+    expect(validateFoodItemDraft({ ...cabbage, pieceWeightGrams: null })).toEqual({});
+  });
+
   test('calculates stock status from quantity and same-unit threshold', () => {
     expect(getStockStatus(3, 2)).toBe('good');
     expect(getStockStatus(2, 2)).toBe('low');

@@ -43,6 +43,7 @@ function parsePlan(id: string, value: Record<string, unknown>): WeeklyMealPlan {
     id,
     weekStartDate: String(value.weekStartDate ?? ''),
     meals: Array.isArray(value.meals) ? value.meals as MealRecommendation[] : [],
+    inventoryFingerprint: typeof value.inventoryFingerprint === 'string' ? value.inventoryFingerprint : undefined,
     createdAt: timestampToIso(value.createdAt),
     updatedAt: timestampToIso(value.updatedAt),
   };
@@ -92,6 +93,7 @@ export async function saveWeeklyMealPlan(
     const created = await addDoc(plansCollection(userId), {
       weekStartDate: plan.weekStartDate,
       meals: plan.meals,
+      inventoryFingerprint: plan.inventoryFingerprint ?? null,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -110,6 +112,7 @@ export async function updateWeeklyMealPlan(
     await updateDoc(doc(getSupabaseServices().db, 'users', userId, 'weeklyMealPlans', plan.id), {
       weekStartDate: plan.weekStartDate,
       meals: plan.meals,
+      inventoryFingerprint: plan.inventoryFingerprint ?? null,
       updatedAt: serverTimestamp(),
     });
   } catch (error) {

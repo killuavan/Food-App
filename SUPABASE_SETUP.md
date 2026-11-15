@@ -90,7 +90,27 @@ The scheduled function uses Resend and reads recipients from the signed-in Supab
 
    Check **Integrations → Cron** and the Edge Function logs after deployment. Remove the job with `select cron.unschedule('send-inventory-notifications-hourly');` if needed. Failed provider sends are retried at most three times; successful history is recorded only after Resend accepts the message.
 
-## 5. Import old Firebase records
+## 5. Enable USDA nutrition search
+
+The app routes USDA search and food-detail requests through an authenticated Edge Function when Supabase is configured. The USDA API key stays in the Edge Function secret and is never sent to the browser. The public USDA `DEMO_KEY` fallback is rate-limited and intended only for local testing.
+
+1. Get a FoodData Central API key from the USDA FoodData Central API key page.
+2. Set it as a Supabase Edge Function secret:
+
+   ```powershell
+   supabase secrets set USDA_API_KEY=your_usda_api_key
+   ```
+
+3. Deploy the proxy from the `App` folder:
+
+   ```powershell
+   supabase functions deploy usda-food-data
+   ```
+
+   `supabase/config.toml` keeps JWT verification enabled. The function accepts only authenticated requests and the supported food search/detail endpoints.
+4. Restart or rebuild the app so it uses the configured Supabase project. No `VITE_` USDA key is needed. Verify the USDA search and open a food detail; if rate-limited, wait for the `Retry-After` interval or check the USDA key/quota and function logs.
+
+## 6. Import old Firebase records
 
 The import matches Firebase and Supabase users by email. Sign into the new Ionic app with the same Google account used in Firebase before starting the import. The importer covers `inventoryItems`, `consumptionLogs`, `inventoryMovements`, `groceryItems`, `healthProfile`, `weeklyMealPlans`, and `weeklyMealFavorites`.
 
@@ -112,7 +132,7 @@ The import matches Firebase and Supabase users by email. Sign into the new Ionic
 
 The import is safe to re-run: it upserts records while preserving Firestore document IDs. The script prints only a record count. It stops if a Firebase account cannot be matched to a Supabase account by email. Do not delete the Firebase project until you have checked the imported data in the app.
 
-## 6. Run and validate
+## 7. Run and validate
 
 ```powershell
 npm run dev

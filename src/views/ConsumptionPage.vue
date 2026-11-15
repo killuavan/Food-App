@@ -4,21 +4,21 @@
     <ion-content>
       <main class="consumption-page">
         <header class="consumption-hero">
-          <div>
-            <h1>Food consumption</h1>
+          <h1>Food consumption</h1>
+          <div class="consumption-actions">
+            <ion-button class="add-button" :disabled="!user" @click="openCreate">
+              <ion-icon slot="start" :icon="addOutline" />
+              Log food
+            </ion-button>
+            <ion-button class="scan-action" :disabled="!user" @click="barcodeModalOpen = true">
+              <ion-icon slot="start" :icon="barcodeOutline" />
+              Scan barcode
+            </ion-button>
+            <ion-button class="summary-action" router-link="/daily-nutrition">
+              <ion-icon slot="start" :icon="restaurantOutline" />
+              Calorie summary
+            </ion-button>
           </div>
-          <ion-button class="add-button" :disabled="!user" @click="openCreate">
-            <ion-icon slot="start" :icon="addOutline" />
-            Log food
-          </ion-button>
-          <ion-button fill="outline" :disabled="!user" @click="barcodeModalOpen = true">
-            <ion-icon slot="start" :icon="barcodeOutline" />
-            Scan barcode
-          </ion-button>
-          <ion-button fill="clear" router-link="/daily-nutrition">
-            <ion-icon slot="start" :icon="restaurantOutline" />
-            Calorie summary
-          </ion-button>
         </header>
 
         <ion-progress-bar v-if="loading" type="indeterminate" aria-label="Loading food consumption" />
@@ -161,7 +161,7 @@
           </section>
         </template>
 
-        <ion-modal :is-open="formOpen" @didDismiss="closeForm">
+        <ion-modal class="consumption-modal" :is-open="formOpen" @didDismiss="closeForm">
           <ion-header>
             <ion-toolbar>
               <ion-title>{{ editingRecord ? 'Edit consumption' : 'Log food consumption' }}</ion-title>
@@ -340,6 +340,63 @@
           </ion-content>
         </ion-modal>
 
+        <ion-modal class="consumption-modal" :is-open="Boolean(weeklyMealDraft)" @didDismiss="closeWeeklyMeal">
+          <ion-header>
+            <ion-toolbar>
+              <ion-title>{{ weeklyMealDraft?.name ?? 'Log weekly meal' }}</ion-title>
+              <ion-button slot="end" fill="clear" @click="closeWeeklyMeal">Close</ion-button>
+            </ion-toolbar>
+          </ion-header>
+          <ion-content class="form-content">
+            <section v-if="weeklyMealDraft" class="consumption-form weekly-meal-form">
+              <p>Review the meal details. Each ingredient will be logged separately and deducted from inventory together.</p>
+              <ion-item>
+                <ion-input
+                  v-model="weeklyMealDate"
+                  type="date"
+                  label="Consumption date"
+                  label-placement="stacked"
+                  :disabled="weeklyMealSaving"
+                />
+              </ion-item>
+              <ion-item>
+                <ion-input
+                  v-model="weeklyMealTime"
+                  type="time"
+                  label="Consumption time"
+                  label-placement="stacked"
+                  :disabled="weeklyMealSaving"
+                />
+              </ion-item>
+              <ion-list lines="none">
+                <ion-item v-for="draft in weeklyMealDraft.drafts" :key="draft.inventoryItemId">
+                  <ion-label>
+                    <h3>{{ draft.foodName }}</h3>
+                    <p>{{ formatQuantity(draft.quantityConsumed) }} {{ draft.measurementUnit }} · {{ draft.nutritionSnapshot?.description ?? 'Nutrition not linked' }}</p>
+                    <p v-if="inventory.find((item) => item.id === draft.inventoryItemId)">
+                      In inventory: {{ formatQuantity(inventory.find((item) => item.id === draft.inventoryItemId)!.quantity) }}
+                      {{ draft.inventoryUnit }}
+                    </p>
+                  </ion-label>
+                  <ion-badge slot="end" :color="mealColor(weeklyMealDraft.mealCategory)">
+                    {{ weeklyMealDraft.mealCategory }}
+                  </ion-badge>
+                </ion-item>
+              </ion-list>
+              <ion-card v-if="weeklyMealError" class="error-card">
+                <ion-card-content role="alert">{{ weeklyMealError }}</ion-card-content>
+              </ion-card>
+              <ion-button expand="block" :disabled="weeklyMealSaving" @click="saveWeeklyMeal">
+                <ion-spinner v-if="weeklyMealSaving" name="crescent" />
+                <span>{{ weeklyMealSaving ? 'Saving meal…' : `Log meal (${weeklyMealDraft.drafts.length} foods)` }}</span>
+              </ion-button>
+              <ion-button expand="block" fill="clear" :disabled="weeklyMealSaving" @click="closeWeeklyMeal">
+                Cancel
+              </ion-button>
+            </section>
+          </ion-content>
+        </ion-modal>
+
         <BarcodeProductModal
           :is-open="barcodeModalOpen"
           @close="barcodeModalOpen = false"
@@ -410,6 +467,7 @@ import {
 import { observeAuth } from '../services/authService';
 import { listFoodItems } from '../services/foodInventoryService';
 import {
+  createFoodConsumptions,
   createFoodConsumption,
   deleteFoodConsumption,
   listFoodConsumptions,
@@ -460,6 +518,11 @@ const toastOpen = ref(false);
 const toastMessage = ref('');
 const toastColor = ref<'success' | 'danger'>('success');
 const selectedPortionGramWeight = ref<number | null>(null);
+const weeklyMealDraft = ref<{ name: string; mealCategory: MealCategory; drafts: FoodConsumptionDraft[] } | null>(null);
+const weeklyMealDate = ref(getLocalDate());
+const weeklyMealTime = ref(getLocalTime());
+const weeklyMealSaving = ref(false);
+const weeklyMealError = ref('');
 let unsubscribeAuth: (() => void) | undefined;
 let foregroundListener: { remove: () => Promise<void> } | undefined;
 let loadSequence = 0;
@@ -625,6 +688,7 @@ async function loadData(userId: string): Promise<void> {
     errorMessage.value = errors.join(' ');
 
     openPendingScannedProduct(userId);
+    if (inventoryResult.status === 'fulfilled') openWeeklyMealFromRoute();
     const requestedItemId = route.query.inventoryItemId;
     if (inventoryResult.status === 'fulfilled'
       && typeof requestedItemId === 'string'
@@ -653,6 +717,179 @@ function handleInventoryUpdated(event: Event): void {
 
 function handleVisibilityChange(): void {
   if (document.visibilityState === 'visible' && user.value) void loadData(user.value.uid);
+}
+
+function openWeeklyMealFromRoute(): void {
+  const rawMeal = route.query.weeklyMeal;
+  if (typeof rawMeal !== 'string') return;
+
+  const clearRouteMeal = () => {
+    void router.replace({
+      path: route.path,
+      query: { ...route.query, weeklyMeal: undefined },
+    }).catch((error: unknown) => {
+      errorMessage.value = `Unable to clear the weekly meal link: ${error instanceof Error ? error.message : String(error)}`;
+    });
+  };
+
+  try {
+    if (rawMeal.length > 6000) throw new Error('The selected weekly meal contains too much data.');
+    const parsed: unknown = JSON.parse(rawMeal);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('The selected weekly meal is invalid.');
+    }
+    const meal = parsed as Record<string, unknown>;
+    if (
+      typeof meal.name !== 'string'
+      || !meal.name.trim()
+      || meal.name.length > 120
+      || typeof meal.mealCategory !== 'string'
+      || !mealCategories.includes(meal.mealCategory as MealCategory)
+      || !Array.isArray(meal.ingredients)
+      || meal.ingredients.length < 1
+      || meal.ingredients.length > 10
+    ) {
+      throw new Error('The selected weekly meal is incomplete or invalid.');
+    }
+    const mealName = meal.name;
+    const mealCategory = meal.mealCategory as MealCategory;
+
+    const drafts = meal.ingredients.map((rawIngredient, index): FoodConsumptionDraft => {
+      if (!rawIngredient || typeof rawIngredient !== 'object' || Array.isArray(rawIngredient)) {
+        throw new Error('A weekly meal ingredient is invalid.');
+      }
+      const ingredient = rawIngredient as Record<string, unknown>;
+      if (
+        typeof ingredient.inventoryItemId !== 'string'
+        || !ingredient.inventoryItemId
+        || typeof ingredient.quantityConsumed !== 'number'
+        || !Number.isFinite(ingredient.quantityConsumed)
+        || Number(ingredient.quantityConsumed) <= 0
+        || Number(ingredient.quantityConsumed) > 50000
+        || (ingredient.measurementUnit !== undefined
+          && ingredient.measurementUnit !== 'g'
+          && ingredient.measurementUnit !== 'pcs')
+      ) {
+        throw new Error('A weekly meal ingredient has invalid inventory or quantity information.');
+      }
+      const item = inventory.value.find((entry) => entry.id === ingredient.inventoryItemId);
+      if (!item) throw new Error(`The inventory item for ingredient ${index + 1} is no longer available.`);
+      const measurementUnit = ingredient.measurementUnit === 'pcs' ? 'pcs' : 'g';
+      if (
+        (measurementUnit === 'pcs' && item.unit !== 'pcs')
+        || (measurementUnit === 'g' && item.unit !== 'g' && item.unit !== 'kg')
+      ) {
+        throw new Error(`${item.foodName} inventory unit does not match the weekly meal amount.`);
+      }
+      if (
+        typeof ingredient.weightState === 'string'
+        && item.weightState
+        && ingredient.weightState !== item.weightState
+      ) {
+        throw new Error(`${item.foodName} has a different food state than the weekly meal.`);
+      }
+
+      return {
+        inventoryItemId: item.id,
+        foodName: item.foodName,
+        foodCategory: item.category,
+        inventoryUnit: item.unit,
+        mealCategory,
+        quantityConsumed: Number(ingredient.quantityConsumed),
+        measurementUnit,
+        consumptionDate: getLocalDate(),
+        consumptionTime: getLocalTime(),
+        notes: `Weekly plan: ${mealName.trim()}`,
+        nutritionSnapshot: item.nutritionProfile ?? null,
+      };
+    });
+
+    const requestedByItem = new Map<string, number>();
+    drafts.forEach((draft) => {
+      requestedByItem.set(
+        draft.inventoryItemId,
+        (requestedByItem.get(draft.inventoryItemId) ?? 0)
+          + quantityInInventoryUnit(
+            draft.quantityConsumed,
+            draft.measurementUnit,
+            inventory.value.find((item) => item.id === draft.inventoryItemId)!.unit,
+          ),
+      );
+    });
+    for (const [itemId, requiredGrams] of requestedByItem) {
+      const item = inventory.value.find((entry) => entry.id === itemId)!;
+      if (requiredGrams > item.quantity) {
+        throw new Error(`${item.foodName} no longer has enough inventory for this meal.`);
+      }
+    }
+
+    weeklyMealDate.value = getLocalDate();
+    weeklyMealTime.value = getLocalTime();
+    weeklyMealError.value = '';
+    weeklyMealDraft.value = {
+      name: mealName.trim(),
+      mealCategory,
+      drafts,
+    };
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    clearRouteMeal();
+  }
+}
+
+function closeWeeklyMeal(): void {
+  if (weeklyMealSaving.value) return;
+  weeklyMealDraft.value = null;
+  weeklyMealError.value = '';
+}
+
+async function saveWeeklyMeal(): Promise<void> {
+  const authenticatedUser = user.value;
+  const meal = weeklyMealDraft.value;
+  if (!authenticatedUser || !meal || weeklyMealSaving.value) return;
+
+  const drafts = meal.drafts.map((draft) => ({
+    ...draft,
+    consumptionDate: weeklyMealDate.value,
+    consumptionTime: weeklyMealTime.value,
+    notes: `Weekly plan: ${meal.name}`,
+  }));
+  const errors = drafts.flatMap((draft) => Object.values(validateFoodConsumptionDraft(draft)));
+  if (errors.length) {
+    weeklyMealError.value = errors[0];
+    return;
+  }
+
+  weeklyMealSaving.value = true;
+  weeklyMealError.value = '';
+  try {
+    const ids = await createFoodConsumptions(authenticatedUser.uid, drafts);
+    const createdAt = new Date().toISOString();
+    const createdRecords = drafts.map((draft, index): FoodConsumption => {
+      const item = inventory.value.find((entry) => entry.id === draft.inventoryItemId)!;
+      return {
+        ...draft,
+        id: ids[index],
+        inventoryDeduction: {
+          inventoryItemId: item.id,
+          quantity: quantityInInventoryUnit(draft.quantityConsumed, draft.measurementUnit, item.unit),
+          unit: item.unit,
+          revision: 1,
+        },
+        createdAt,
+        updatedAt: createdAt,
+      };
+    });
+    records.value = [...createdRecords, ...records.value];
+    showToast(`${meal.name} logged. Inventory updated.`, 'success');
+    weeklyMealDraft.value = null;
+    void loadData(authenticatedUser.uid);
+  } catch (error) {
+    weeklyMealError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    weeklyMealSaving.value = false;
+  }
 }
 
 function emptyDraft(): FoodConsumptionDraft {
@@ -953,10 +1190,10 @@ function mealColor(meal: MealCategory): 'primary' | 'success' | 'tertiary' | 'wa
 }
 
 .consumption-hero {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 20px;
+  gap: 16px 24px;
   margin-bottom: 28px;
   padding: 28px 32px;
   border-radius: 22px;
@@ -965,6 +1202,28 @@ function mealColor(meal: MealCategory): 'primary' | 'success' | 'tertiary' | 'wa
     url('/images/food-banner.svg') center / cover no-repeat;
   box-shadow: 0 14px 32px rgb(25 80 61 / 13%);
   color: #fff;
+}
+
+.consumption-hero h1 {
+  margin: 0;
+  font-size: clamp(1.9rem, 4vw, 2.45rem);
+  letter-spacing: -0.04em;
+}
+
+.consumption-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.consumption-actions ion-button {
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 650;
+  text-transform: none;
+  white-space: normal;
 }
 
 .eyebrow {
@@ -976,7 +1235,6 @@ function mealColor(meal: MealCategory): 'primary' | 'success' | 'tertiary' | 'wa
 }
 
 .consumption-hero .eyebrow { color: #bcebd0; }
-.consumption-hero h1 { margin: 7px 0; font-size: clamp(1.9rem, 4vw, 2.45rem); letter-spacing: -0.04em; }
 .consumption-hero p:last-child { margin: 0; color: rgb(255 255 255 / 82%); line-height: 1.5; }
 
 .add-button {
@@ -984,8 +1242,22 @@ function mealColor(meal: MealCategory): 'primary' | 'success' | 'tertiary' | 'wa
   --background: #fff;
   --color: #20644d;
   --border-radius: 11px;
-  font-weight: 700;
-  text-transform: none;
+}
+
+.scan-action {
+  --background: #c9efda;
+  --background-hover: #b6e6cb;
+  --background-activated: #a7ddbf;
+  --color: #174b37;
+  --border-radius: 11px;
+}
+
+.summary-action {
+  --background: #ffe2a8;
+  --background-hover: #f7d58d;
+  --background-activated: #edca7d;
+  --color: #4a3510;
+  --border-radius: 11px;
 }
 
 .section-heading {
@@ -1090,6 +1362,11 @@ function mealColor(meal: MealCategory): 'primary' | 'success' | 'tertiary' | 'wa
 .empty-history ion-button, .auth-prompt ion-button { --border-radius: 10px; text-transform: none; }
 .error-card { border: 1px solid #f1d3cd; border-radius: 12px; box-shadow: none; color: #943e33; }
 .form-content { --background: #f6f8f6; }
+ion-modal.consumption-modal {
+  --width: min(100%, 720px);
+  --height: min(94%, 900px);
+  --border-radius: 18px;
+}
 .consumption-form { width: min(640px, 100%); margin: 0 auto; padding: 18px 18px 30px; }
 .consumption-form > ion-item { --background: #fff; --border-radius: 11px; margin-top: 10px; }
 .field-error { margin: 5px 4px 0; color: #bd463d; font-size: 0.76rem; }
@@ -1103,19 +1380,44 @@ function mealColor(meal: MealCategory): 'primary' | 'success' | 'tertiary' | 'wa
 .selected-food-card p { margin: 10px 0 0; color: #68786e; font-size: 0.8rem; }
 .quantity-row, .date-time-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
 .quantity-row ion-item, .date-time-row ion-item { --background: #fff; --border-radius: 11px; }
+.nutrition-preview { margin: 12px 0; border: 1px solid #e3ece5; border-radius: 13px; box-shadow: none; }
+.nutrition-preview ion-card-content { padding: 14px; }
+.nutrition-caption, .nutrition-basis-warning { margin: 0 0 8px; color: #68786e; font-size: 0.78rem; line-height: 1.45; }
+.nutrition-basis-warning { color: #8a5a27; }
+.nutrition-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.nutrition-preview-grid > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #e8eee9;
+  border-radius: 9px;
+  background: #fbfcfb;
+}
+.nutrition-preview-grid span { color: #68786e; font-size: 0.76rem; line-height: 1.35; }
+.nutrition-preview-grid strong { color: #294638; font-size: 0.9rem; overflow-wrap: anywhere; }
 .available-comparison { margin: 6px 4px 0; color: #718078; font-size: 0.75rem; }
 .save-button { margin-top: 20px; --border-radius: 11px; text-transform: none; }
 
 @media (max-width: 850px) {
+  .consumption-hero { grid-template-columns: 1fr; }
+  .consumption-actions { width: 100%; }
   .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .filter-panel { grid-template-columns: 1fr 1fr; }
   .filter-panel ion-searchbar { grid-column: 1 / -1; }
 }
 
 @media (max-width: 600px) {
+  ion-modal.consumption-modal { --width: 100%; --height: 100%; --border-radius: 0; }
   .consumption-page { padding: 18px 14px 42px; }
-  .consumption-hero { align-items: flex-start; flex-direction: column; padding: 22px; }
-  .add-button { width: 100%; margin: 0; }
+  .consumption-hero { padding: 22px; }
+  .consumption-actions { grid-template-columns: 1fr; }
+  .consumption-actions ion-button { width: 100%; }
   .section-heading { align-items: flex-start; flex-direction: column; }
   .date-picker { width: 100%; }
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
@@ -1129,5 +1431,11 @@ function mealColor(meal: MealCategory): 'primary' | 'success' | 'tertiary' | 'wa
   .food-mark { width: 34px; height: 34px; margin-right: 4px; }
   .record-detail { min-width: 70px; }
   .record-actions { margin-left: 3px; }
+}
+
+@media (max-width: 380px) {
+  .consumption-form { padding: 12px 12px 24px; }
+  .nutrition-preview-grid { grid-template-columns: 1fr; }
+  .quantity-row, .date-time-row { grid-template-columns: 1fr; gap: 4px; }
 }
 </style>

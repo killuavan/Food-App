@@ -51,6 +51,7 @@ function toHealthProfile(id: string, data: Record<string, unknown>): HealthProfi
 
   return {
     id,
+    gender: data.gender === 'male' || data.gender === 'female' ? data.gender : '',
     dateOfBirth: typeof data.dateOfBirth === 'string' ? data.dateOfBirth : '',
     age: typeof data.age === 'number' ? data.age : null,
     heightCm: typeof data.heightCm === 'number' ? data.heightCm : null,

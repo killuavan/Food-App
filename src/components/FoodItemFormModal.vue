@@ -16,7 +16,7 @@
             placeholder="e.g. Brown rice"
             :maxlength="100"
             :class="{ 'ion-invalid': errors.foodName }"
-            @ionInput="clearError('foodName')"
+            @ionInput="handleFoodNameInput"
           />
         </ion-item>
         <ion-item v-if="draft.brand">
@@ -72,6 +72,38 @@
             </ion-select>
           </ion-item>
         </div>
+        <template v-if="draft.unit === 'pcs'">
+          <ion-item>
+            <ion-input
+              :value="draft.pieceWeightGrams ?? undefined"
+              type="number"
+              inputmode="decimal"
+              min="0.01"
+              step="any"
+              label="Weight per piece (g, optional)"
+              label-placement="stacked"
+              placeholder="e.g. 100"
+              @ionInput="updatePieceWeight($event)"
+            />
+          </ion-item>
+          <ion-note v-if="errors.pieceWeightGrams" color="danger">{{ errors.pieceWeightGrams }}</ion-note>
+          <ion-note class="field-help">Enter the actual edible weight of one piece. Inventory is still counted in pieces; this weight lets nutrition be calculated accurately.</ion-note>
+        </template>
+        <ion-item>
+          <ion-select
+            :value="draft.weightState ?? 'unspecified'"
+            label="Food state (optional)"
+            interface="popover"
+            @ionChange="changeWeightState"
+          >
+            <ion-select-option value="unspecified">Not specified</ion-select-option>
+            <ion-select-option value="raw">Raw / fresh</ion-select-option>
+            <ion-select-option value="cooked">Cooked</ion-select-option>
+            <ion-select-option value="dry">Dry</ion-select-option>
+            <ion-select-option value="as-sold">As sold</ion-select-option>
+          </ion-select>
+        </ion-item>
+        <ion-note class="field-help">Used to match this item to recipes that require a specific food state.</ion-note>
 
         <ion-item>
           <ion-input
@@ -115,13 +147,13 @@
             label-placement="stacked"
             placeholder="Optional details"
             auto-grow
-            :maxlength="500"
+            :maxlength="5000"
           />
         </ion-item>
 
-        <details class="nutrition-section">
-          <summary>Link USDA nutrition (optional)</summary>
-          <p class="nutrition-help">Adds nutrition without changing inventory details.</p>
+        <details class="nutrition-section" :open="nutritionExpanded">
+          <summary>Nutrition information (optional)</summary>
+          <p class="nutrition-help">Nutrition information appears automatically after you enter a food name. Verify the match before saving.</p>
           <ion-card v-if="draft.nutritionProfile" class="linked-nutrition">
             <ion-card-content>
               <strong>{{ draft.nutritionProfile.description }}</strong>
@@ -137,12 +169,14 @@
           </ion-card>
           <NutritionSearchPanel
             :initial-profile="draft.nutritionProfile"
+            :initial-search="nutritionSearchQuery"
+            :auto-select-match="true"
             @selected="draft.nutritionProfile = $event"
           />
         </details>
 
         <ion-button class="submit-button" type="submit" expand="block" :disabled="saving">
-          {{ saving ? 'Saving…' : item ? 'Save changes' : 'Add food item' }}
+          {{ saving ? 'Saving…' : item ? 'Save changes' : draft.barcode ? 'Save to inventory' : 'Add food item' }}
         </ion-button>
       </form>
     </ion-content>
@@ -150,7 +184,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, watch } from 'vue';
+import { onUnmounted, reactive, ref, watch } from 'vue';
 import {
   IonButton,
   IonCard,
@@ -179,6 +213,7 @@ import {
   type FoodItemDraft,
   type FoodItemFormErrors,
   type MeasurementUnit,
+  type FoodWeightState,
 } from '../utils/foodInventory';
 
 const props = defineProps<{
@@ -195,6 +230,12 @@ const emit = defineEmits<{
 
 const draft = reactive<FoodItemDraft>(emptyFoodItemDraft());
 const errors = reactive<FoodItemFormErrors>({});
+const nutritionSearchQuery = ref('');
+const nutritionExpanded = ref(false);
+let nutritionSearchTimer: ReturnType<typeof setTimeout> | null = null;
+onUnmounted(() => {
+  if (nutritionSearchTimer) clearTimeout(nutritionSearchTimer);
+});
 
 watch(
   () => [props.isOpen, props.item, props.initialDraft] as const,
@@ -205,6 +246,8 @@ watch(
       category: item.category,
       quantity: item.quantity,
       unit: item.unit,
+      weightState: item.weightState ?? null,
+      pieceWeightGrams: item.pieceWeightGrams ?? null,
       lowStockThreshold: item.lowStockThreshold,
       purchaseDate: item.purchaseDate,
       expirationDate: item.expirationDate,
@@ -215,10 +258,27 @@ watch(
       brand: item.brand ?? '',
       productImageUrl: item.productImageUrl ?? '',
     } : initialDraft ?? emptyFoodItemDraft());
+    nutritionSearchQuery.value = '';
+    nutritionExpanded.value = false;
+    if (nutritionSearchTimer) clearTimeout(nutritionSearchTimer);
     clearErrors();
   },
   { immediate: true },
 );
+
+function handleFoodNameInput(): void {
+  clearError('foodName');
+  draft.nutritionProfile = null;
+  nutritionExpanded.value = true;
+  nutritionSearchQuery.value = '';
+  if (nutritionSearchTimer) clearTimeout(nutritionSearchTimer);
+  const query = draft.foodName.trim();
+  if (query.length < 2) return;
+  nutritionSearchTimer = setTimeout(() => {
+    nutritionSearchQuery.value = query;
+    nutritionSearchTimer = null;
+  }, 800);
+}
 
 function changeCategory(event: CustomEvent<{ value: FoodCategory }>): void {
   draft.category = event.detail.value;
@@ -229,7 +289,13 @@ function changeUnit(event: CustomEvent<{ value: MeasurementUnit }>): void {
   const nextUnit = event.detail.value;
   draft.lowStockThreshold = convertThreshold(draft.lowStockThreshold, draft.unit, nextUnit);
   draft.unit = nextUnit;
+  if (nextUnit !== 'pcs') draft.pieceWeightGrams = null;
   delete errors.unit;
+}
+
+function changeWeightState(event: CustomEvent<{ value: FoodWeightState | 'unspecified' }>): void {
+  const value = event.detail.value;
+  draft.weightState = value === 'unspecified' ? null : value;
 }
 
 function unitLabel(unit: MeasurementUnit): string {
@@ -255,6 +321,12 @@ function updateNumericField(
   const value = event.detail.value;
   draft[field] = value == null || value.trim() === '' ? Number.NaN : Number(value);
   clearError(field);
+}
+
+function updatePieceWeight(event: CustomEvent<{ value?: string | null }>): void {
+  const value = event.detail.value;
+  draft.pieceWeightGrams = value == null || value.trim() === '' ? null : Number(value);
+  clearError('pieceWeightGrams');
 }
 
 function clearErrors(): void {

@@ -5,7 +5,6 @@
         <span class="brand-mark"><img :src="brandMark" alt="" /></span>
         <span class="brand-copy">
           <strong>Pantry<span>&amp;</span>Plate</strong>
-          <small>Food, thoughtfully managed</small>
         </span>
       </router-link>
 
@@ -113,10 +112,8 @@ function isActive(path: string): boolean {
 .brand { display: flex; align-items: center; gap: 9px; color: inherit; text-decoration: none; }
 .brand-mark { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 13px; overflow: hidden; }
 .brand-mark img { width: 100%; height: 100%; }
-.brand-copy { display: grid; gap: 1px; }
 .brand-copy strong { color: #1f2937; font-size: .99rem; letter-spacing: -.03em; }
 .brand-copy strong span { color: #2e7d32; }
-.brand-copy small { color: #6b7280; font-size: .62rem; }
 .desktop-navigation { display: none; align-items: center; justify-content: center; gap: 1px; margin: 0 10px; }
 .desktop-navigation ion-button { --color: #526158; --padding-start: 8px; --padding-end: 8px; min-height: 38px; font-size: .68rem; text-transform: none; }
 .desktop-navigation ion-button.nav-active { --color: #1b5e20; --background: #e8f5e9; --border-radius: 9px; font-weight: 700; }
@@ -135,7 +132,6 @@ function isActive(path: string): boolean {
 @media (max-width: 420px) {
   .main-toolbar { --min-height: 62px; --padding-start: 12px; --padding-end: 9px; }
   .brand-mark { width: 35px; height: 35px; }
-  .brand-copy small { display: none; }
   .account-label { display: none; }
 }
 </style>

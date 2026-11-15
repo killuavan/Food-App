@@ -6,9 +6,11 @@ export const activityLevels = [
 ] as const;
 
 export type ActivityLevel = (typeof activityLevels)[number];
+export type Gender = 'male' | 'female' | '';
 
 export interface HealthProfile {
   id: string;
+  gender: Gender;
   dateOfBirth: string;
   age: number | null;
   heightCm: number | null;
@@ -105,6 +107,7 @@ export function calculateBmi(
 
 export function emptyHealthProfileDraft(): HealthProfileDraft {
   return {
+    gender: '',
     dateOfBirth: '',
     age: null,
     heightCm: null,
@@ -121,6 +124,9 @@ export function validateHealthProfileDraft(
   today = new Date(),
 ): Partial<Record<keyof HealthProfileDraft, string>> {
   const errors: Partial<Record<keyof HealthProfileDraft, string>> = {};
+  if (draft.gender !== '' && draft.gender !== 'male' && draft.gender !== 'female') {
+    errors.gender = 'Choose male, female, or prefer not to say.';
+  }
   const hasDateOfBirth = Boolean(draft.dateOfBirth);
   const hasAge = draft.age !== null;
 

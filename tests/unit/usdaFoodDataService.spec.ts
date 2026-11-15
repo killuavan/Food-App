@@ -5,17 +5,33 @@ function response(body: unknown, status = 200): Response {
     ok: status >= 200 && status < 300,
     status,
     statusText: status === 200 ? 'OK' : 'Too Many Requests',
+    headers: new Headers(),
     json: async () => body,
   } as Response;
 }
 
+vi.mock('../../src/services/supabaseClient', () => ({
+  getSupabaseClient: () => ({
+    auth: {
+      getSession: vi.fn(async () => ({
+        data: { session: { access_token: 'test-user-token' } },
+        error: null,
+      })),
+    },
+  }),
+}));
+
 describe('USDA FoodData Central service', () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.stubEnv('VITE_SUPABASE_URL', '');
+    vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', '');
+    vi.stubEnv('VITE_NUTRITION_API_BASE_URL', '');
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   test('searches official results with pagination and maps the USDA response', async () => {
@@ -89,5 +105,38 @@ describe('USDA FoodData Central service', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Network unavailable')));
     const { searchUsdaFoods: searchOffline } = await import('../../src/services/usdaFoodDataService');
     await expect(searchOffline('banana')).rejects.toThrow(/check your internet connection/i);
+  });
+
+  test('uses the authenticated Supabase proxy without exposing a USDA key', async () => {
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://project.example.supabase.co');
+    vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', 'test-publishable-key');
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      foods: [],
+      totalHits: 0,
+      currentPage: 1,
+      totalPages: 0,
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { searchUsdaFoods } = await import('../../src/services/usdaFoodDataService');
+    await searchUsdaFoods('apples, raw');
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://project.example.supabase.co/functions/v1/usda-food-data');
+    expect(options.method).toBe('POST');
+    expect(new Headers(options.headers).get('Authorization')).toBe('Bearer test-user-token');
+    expect(new Headers(options.headers).get('apikey')).toBe('test-publishable-key');
+    expect(JSON.parse(String(options.body))).toMatchObject({
+      path: '/foods/search',
+      params: {
+        query: 'apples, raw',
+        pageNumber: 1,
+        pageSize: 10,
+        sortBy: 'dataType.keyword',
+        sortOrder: 'desc',
+      },
+    });
+    expect(String(options.body)).not.toContain('api_key');
   });
 });

@@ -24,12 +24,8 @@
         </section>
 
         <template v-if="user && !loading">
-          <ion-card class="context-card">
+          <ion-card v-if="profile?.dietaryPreferences || profile?.foodAllergies" class="context-card">
             <ion-card-content>
-              <div>
-                <strong>Plan context</strong>
-                <p>Check food labels for allergens.</p>
-              </div>
               <p v-if="profile?.dietaryPreferences" class="context-chip">Preferences: {{ profile.dietaryPreferences }}</p>
               <p v-if="profile?.foodAllergies" class="context-chip allergy-chip">Allergies excluded: {{ profile.foodAllergies }}</p>
             </ion-card-content>
@@ -65,8 +61,8 @@
 
           <ion-card v-if="!currentPlan" class="empty-plan">
             <ion-card-content>
-              <h2>Start with your pantry</h2>
-              <p>Add pantry items to get meal ideas based on foods you have.</p>
+              <h2>Create a weekly plan</h2>
+              <p>Get a full week of meal ideas. The plan shows which ingredients are already in your pantry.</p>
               <ion-button router-link="/inventory" fill="outline">Open food inventory</ion-button>
               <ion-button :disabled="generating" @click="generatePlan">Generate a week</ion-button>
             </ion-card-content>
@@ -99,23 +95,11 @@
                         class="ingredient-chip"
                         :class="`ingredient-${ingredient.availability}`"
                       >
-                        {{ ingredient.foodName }} · {{ ingredient.amountGrams }} g ({{ ingredient.weightState || 'as sold' }})
+                        {{ ingredientDisplayName(ingredient) }} · {{ ingredientAmountLabel(ingredient) }} ({{ ingredientPreparationLabel(ingredient) }})
                       </span>
-                    </div>
-                    <div class="ingredient-links">
-                      <ion-button
-                        v-for="ingredient in mealForCategory(category)?.ingredients.filter((entry) => entry.inventoryItemId)"
-                        :key="`nutrition-${ingredient.inventoryItemId}`"
-                        :router-link="{ path: '/nutrition', query: { inventoryId: ingredient.inventoryItemId, search: ingredient.inventoryFoodName } }"
-                        fill="clear"
-                        size="small"
-                      >
-                        Search USDA for {{ ingredient.inventoryFoodName }}
-                      </ion-button>
                     </div>
                     <p v-if="mealForCategory(category)?.missingIngredients.length" class="missing-note">
                       Missing or unverified: {{ mealForCategory(category)?.missingIngredients.join('; ') }}.
-                      <span>Check inventory quantities and units.</span>
                       <ion-button router-link="/inventory" fill="clear" size="small">Review inventory</ion-button>
                     </p>
                     <div class="nutrition-summary">
@@ -124,10 +108,26 @@
                         <strong>{{ formatNutrient(mealForCategory(category)!, nutrient.id) }}</strong>
                       </div>
                     </div>
-                    <p v-if="!mealForCategory(category)?.nutrition.complete" class="unavailable-note">
-                      Partial totals include only foods with linked nutrition.
-                      <ion-button router-link="/nutrition" fill="clear" size="small">Link USDA nutrition</ion-button>
-                    </p>
+                    <div v-if="!mealForCategory(category)?.nutrition.complete" class="nutrition-note">
+                      <ion-button
+                        v-for="ingredient in ingredientsNeedingNutritionLink(mealForCategory(category)!)"
+                        :key="ingredient.inventoryItemId ?? ingredient.foodName"
+                        :router-link="nutritionLinkRoute(ingredient)"
+                        fill="clear"
+                        size="small"
+                      >
+                        {{ hasLinkedNutrition(ingredient) ? 'Update' : 'Link' }} {{ ingredient.inventoryFoodName }} nutrition
+                      </ion-button>
+                      <ion-button
+                        v-for="ingredient in ingredientsNeedingPieceWeight(mealForCategory(category)!)"
+                        :key="`weight-${ingredient.inventoryItemId ?? ingredient.foodName}`"
+                        :router-link="inventoryEditRoute(ingredient)"
+                        fill="clear"
+                        size="small"
+                      >
+                        Set {{ ingredient.inventoryFoodName }} weight
+                      </ion-button>
+                    </div>
                     <div class="meal-actions">
                       <ion-button fill="outline" size="small" @click="openDetails(mealForCategory(category)!)">
                         <ion-icon slot="start" :icon="informationCircleOutline" />
@@ -136,6 +136,14 @@
                       <ion-button fill="clear" size="small" @click="openReplacement(mealForCategory(category)!)">
                         <ion-icon slot="start" :icon="swapHorizontalOutline" />
                         Replace meal
+                      </ion-button>
+                      <ion-button
+                        fill="clear"
+                        size="small"
+                        :router-link="logMealRoute(mealForCategory(category)!)"
+                      >
+                        <ion-icon slot="start" :icon="restaurantOutline" />
+                        Log meal
                       </ion-button>
                       <ion-button
                         fill="clear"
@@ -151,13 +159,12 @@
                   <div v-else class="no-meal">
                     <p class="meal-category">{{ category }}</p>
                     <h2>No suggestion for this slot</h2>
-                    <p>No catalog meal matched the current inventory and restrictions. Add suitable items or adjust preferences.</p>
+                    <p v-if="category !== 'Snacks'" class="no-meal-hint">{{ noSuggestionHint(category) }}</p>
                   </div>
                 </ion-card-content>
               </ion-card>
             </section>
           </template>
-          <p class="safety-note">Meal ideas are informational, not medical advice. Nutrition may be incomplete. Inventory is not deducted.</p>
         </template>
 
         <ion-modal :is-open="Boolean(detailMeal)" @didDismiss="detailMeal = null">
@@ -175,8 +182,8 @@
               <ion-list lines="none">
                 <ion-item v-for="ingredient in detailMeal.ingredients" :key="ingredient.foodName">
                   <ion-label>
-                    <h4>{{ ingredient.foodName }} · {{ ingredient.amountGrams }} g ({{ ingredient.weightState || 'as sold' }})</h4>
-                    <p v-if="ingredient.availability === 'available'">Inventory: {{ ingredient.inventoryFoodName }} · {{ ingredient.availableGrams }} g recorded</p>
+                    <h4>{{ ingredientDisplayName(ingredient) }} · {{ ingredientAmountLabel(ingredient) }} ({{ ingredientPreparationLabel(ingredient) }})</h4>
+                    <p v-if="ingredient.availability === 'available'">Inventory: {{ ingredient.inventoryFoodName }} · {{ formatNumber(ingredient.availableQuantity ?? 0) }} {{ ingredient.availableUnit }} recorded</p>
                     <p v-else-if="ingredient.availability === 'unverified'">Inventory has {{ ingredient.inventoryFoodName }}, but its unit cannot be verified against this gram amount.</p>
                     <p v-else-if="ingredient.availableGrams !== null">Need {{ ingredient.amountGrams }} g; {{ ingredient.availableGrams }} g recorded in inventory.</p>
                     <p v-else>Not identified in available inventory.</p>
@@ -195,8 +202,26 @@
                   <strong>{{ formatNutrient(detailMeal, nutrient.id) }}</strong>
                 </div>
               </div>
-              <p class="unavailable-note">Only linked USDA values are included. Missing values are not counted as zero.</p>
-              <ion-button router-link="/nutrition" fill="outline" size="small">Link USDA nutrition</ion-button>
+              <div v-if="!detailMeal.nutrition.complete" class="nutrition-note">
+                <ion-button
+                  v-for="ingredient in ingredientsNeedingNutritionLink(detailMeal)"
+                  :key="ingredient.inventoryItemId ?? ingredient.foodName"
+                  :router-link="nutritionLinkRoute(ingredient)"
+                  fill="clear"
+                  size="small"
+                >
+                  {{ hasLinkedNutrition(ingredient) ? 'Update' : 'Link' }} {{ ingredient.inventoryFoodName }} nutrition
+                </ion-button>
+                <ion-button
+                  v-for="ingredient in ingredientsNeedingPieceWeight(detailMeal)"
+                  :key="`weight-${ingredient.inventoryItemId ?? ingredient.foodName}`"
+                  :router-link="inventoryEditRoute(ingredient)"
+                  fill="clear"
+                  size="small"
+                >
+                  Set {{ ingredient.inventoryFoodName }} weight
+                </ion-button>
+              </div>
               <ion-button router-link="/inventory" fill="clear" size="small">Review inventory units</ion-button>
             </section>
           </ion-content>
@@ -212,17 +237,19 @@
           <ion-content>
             <section class="modal-content">
               <p v-if="replacementMeal" class="section-help">
-                Alternatives keep {{ replacementMeal.day }} {{ replacementMeal.category }} and are checked against the saved restrictions and current inventory.
+                Alternatives keep {{ replacementMeal.day }} {{ replacementMeal.category }} and follow your saved dietary restrictions. Pantry availability is shown for each option.
               </p>
               <ion-card v-for="alternative in replacementAlternatives" :key="alternative.recipeId" class="alternative-card">
                 <ion-card-content>
                   <h3>{{ alternative.recipeName }}</h3>
-                  <p>{{ alternative.ingredients.map((ingredient) => `${ingredient.foodName} ${ingredient.amountGrams} g`).join(' · ') }}</p>
+                  <p>{{ alternative.ingredients.map((ingredient) => `${ingredientDisplayName(ingredient)} ${ingredientAmountLabel(ingredient)}`).join(' · ') }}</p>
                   <p v-if="alternative.missingIngredients.length" class="missing-note">Missing/unverified: {{ alternative.missingIngredients.join('; ') }}</p>
                   <ion-button size="small" @click="confirmReplacement(alternative)">Use this alternative</ion-button>
                 </ion-card-content>
               </ion-card>
-              <p v-if="!replacementAlternatives.length" class="no-meal">No other compatible catalog meal currently matches your inventory.</p>
+              <div v-if="!replacementAlternatives.length" class="no-alternatives">
+                <p>No other catalog meal matches this slot and your saved dietary restrictions.</p>
+              </div>
             </section>
           </ion-content>
         </ion-modal>
@@ -287,6 +314,7 @@ import {
   IonTitle,
   IonToast,
   IonToolbar,
+  onIonViewWillEnter,
 } from '@ionic/vue';
 import {
   deleteWeeklyMealFavorite,
@@ -300,6 +328,7 @@ import {
 import {
   availableAlternatives,
   generateWeeklyMealPlan,
+  getInventoryFingerprint,
   getMondayDate,
   mealNutrients,
   recommendationDays,
@@ -308,6 +337,7 @@ import {
   type MealNutrientId,
   type MealRecommendation,
   type RecommendedMealCategory,
+  type RecommendedIngredient,
   type WeeklyMealPlan,
 } from '../utils/weeklyMealRecommendations';
 import { sortConsumptionsNewestFirst, type FoodConsumption } from '../utils/foodConsumption';
@@ -321,6 +351,7 @@ import {
   heart,
   heartOutline,
   informationCircleOutline,
+  restaurantOutline,
   refreshOutline,
   swapHorizontalOutline,
 } from 'ionicons/icons';
@@ -374,6 +405,95 @@ function mealForCategory(category: RecommendedMealCategory): MealRecommendation 
   return selectedDayMeals.value.find((meal) => meal.category === category);
 }
 
+function ingredientDisplayName(ingredient: RecommendedIngredient): string {
+  const inventoryName = ingredient.inventoryFoodName?.trim();
+  if (!inventoryName || inventoryName.toLocaleLowerCase() === ingredient.foodName.toLocaleLowerCase()) {
+    return ingredient.foodName;
+  }
+  return `${ingredient.foodName} (${inventoryName})`;
+}
+
+function ingredientAmountLabel(ingredient: RecommendedIngredient): string {
+  if (ingredient.preparedFrom && ingredient.inventoryWeightState === ingredient.preparedFrom.weightState) {
+    return `${formatNumber(ingredient.amountToLog)} g dry (about ${formatNumber(ingredient.amountGrams)} g cooked)`;
+  }
+  if (ingredient.amountPieces !== undefined && ingredient.inventoryPieceWeightGrams) {
+    return `${formatNumber(ingredient.amountToLog)} pc (${formatNumber(ingredient.amountPieces * ingredient.inventoryPieceWeightGrams)} g)`;
+  }
+  if (ingredient.inventoryPackageWeightGrams) {
+    return `${formatNumber(ingredient.amountGrams)} g (${formatNumber(ingredient.amountToLog)} pcs from package)`;
+  }
+  const unit = ingredient.unitToLog === 'pcs' && ingredient.amountToLog === 1 ? 'pc' : ingredient.unitToLog;
+  return `${formatNumber(ingredient.amountToLog)} ${unit}`;
+}
+
+function ingredientPreparationLabel(ingredient: RecommendedIngredient): string {
+  if (ingredient.amountPieces !== undefined && ingredient.inventoryWeightState === 'raw') {
+    return 'cook before serving';
+  }
+  if (ingredient.preparedFrom && ingredient.inventoryWeightState === ingredient.preparedFrom.weightState) {
+    return 'cook before serving';
+  }
+  return ingredient.weightState || 'as sold';
+}
+
+function ingredientsNeedingNutritionLink(meal: MealRecommendation): RecommendedIngredient[] {
+  return meal.ingredients.filter((ingredient) => (
+    ingredient.inventoryItemId
+    && inventory.value.some((item) => item.id === ingredient.inventoryItemId)
+  ));
+}
+
+function hasLinkedNutrition(ingredient: RecommendedIngredient): boolean {
+  return Boolean(inventory.value.find((item) => item.id === ingredient.inventoryItemId)?.nutritionProfile);
+}
+
+function ingredientsNeedingPieceWeight(meal: MealRecommendation): RecommendedIngredient[] {
+  return meal.ingredients.filter((ingredient) => {
+    const item = inventory.value.find((entry) => entry.id === ingredient.inventoryItemId);
+    return item?.unit === 'pcs' && !item.pieceWeightGrams;
+  });
+}
+
+function nutritionLinkRoute(ingredient: RecommendedIngredient): string {
+  const params = new URLSearchParams({
+    inventoryId: ingredient.inventoryItemId ?? '',
+    search: ingredient.inventoryFoodName ?? ingredient.foodName,
+    linkInventory: 'true',
+  });
+  return `/nutrition?${params.toString()}`;
+}
+
+function inventoryEditRoute(ingredient: RecommendedIngredient): string {
+  const params = new URLSearchParams({ editItem: ingredient.inventoryItemId ?? '' });
+  return `/inventory?${params.toString()}`;
+}
+
+function noSuggestionHint(category: RecommendedMealCategory): string {
+  if (category === 'Breakfast') {
+    return 'No breakfast in the recipe catalog matches your saved dietary restrictions.';
+  }
+  if (category === 'Lunch') {
+    return 'No lunch in the recipe catalog matches your saved dietary restrictions.';
+  }
+  return 'No dinner in the recipe catalog matches your saved dietary restrictions.';
+}
+
+function logMealRoute(meal: MealRecommendation): string {
+  const weeklyMeal = {
+    name: meal.recipeName,
+    mealCategory: meal.category,
+    ingredients: meal.ingredients.map((ingredient) => ({
+      inventoryItemId: ingredient.inventoryItemId,
+      foodName: ingredient.inventoryFoodName,
+      quantityConsumed: ingredient.amountToLog,
+      measurementUnit: ingredient.unitToLog,
+      weightState: ingredient.inventoryWeightState ?? ingredient.weightState ?? null,
+    })),
+  };
+  return `/consumption?weeklyMeal=${encodeURIComponent(JSON.stringify(weeklyMeal))}`;
+}
+
 onMounted(() => {
   unsubscribe = observeAuth((authenticatedUser) => {
     loadSequence += 1;
@@ -399,6 +519,10 @@ onMounted(() => {
 onUnmounted(() => {
   unsubscribe?.();
   window.removeEventListener('food-inventory-updated', handleInventoryUpdated);
+});
+
+onIonViewWillEnter(() => {
+  if (user.value) void loadData(user.value.uid);
 });
 
 function handleInventoryUpdated(event: Event): void {
@@ -427,11 +551,47 @@ async function loadData(userId: string): Promise<void> {
   if (results[2].status === 'fulfilled') profile.value = results[2].value;
   if (results[4].status === 'fulfilled') favorites.value = results[4].value;
   if (results[3].status === 'fulfilled') {
-    plans.value = results[3].value.map((plan) => ({
+    const savedPlans = results[3].value;
+    plans.value = savedPlans.map((plan) => ({
       ...plan,
-      meals: plan.meals.map((meal) => refreshMealRecommendation(meal, inventory.value, favorites.value)),
+      meals: plan.meals
+        .map((meal) => refreshMealRecommendation(meal, inventory.value, favorites.value)),
     }));
     currentPlanId.value = plans.value[0]?.id ?? '';
+    const activePlan = savedPlans[0];
+    const inventoryFingerprint = getInventoryFingerprint(inventory.value, profile.value);
+    if (
+      results[2].status === 'fulfilled'
+      && activePlan?.weekStartDate === getMondayDate()
+      && activePlan.inventoryFingerprint !== inventoryFingerprint
+    ) {
+      const generated = generateWeeklyMealPlan({
+        inventory: inventory.value,
+        profile: profile.value,
+        consumption: sortConsumptionsNewestFirst(consumption.value),
+        favorites: favorites.value,
+        weekStartDate: activePlan.weekStartDate,
+      });
+      const updatedPlan: WeeklyMealPlan = {
+        ...activePlan,
+        ...generated,
+        inventoryFingerprint,
+        updatedAt: new Date().toISOString(),
+      };
+      try {
+        await updateWeeklyMealPlan(userId, updatedPlan);
+        plans.value = plans.value.map((plan) => plan.id === updatedPlan.id
+          ? {
+            ...updatedPlan,
+            meals: updatedPlan.meals
+              .map((meal) => refreshMealRecommendation(meal, inventory.value, favorites.value)),
+          }
+          : plan);
+        notify('Weekly meals updated from your profile and inventory.', 'success');
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : String(error));
+      }
+    }
   }
   errorMessage.value = errors.join(' ');
   loading.value = false;
@@ -457,13 +617,17 @@ async function generatePlan(): Promise<void> {
   generating.value = true;
   errorMessage.value = '';
   try {
+    profile.value = await getHealthProfile(authenticatedUser.uid);
     const generated = generateWeeklyMealPlan({
       inventory: inventory.value,
       profile: profile.value,
       consumption: sortConsumptionsNewestFirst(consumption.value),
       favorites: favorites.value,
     });
-    const saved = await saveWeeklyMealPlan(authenticatedUser.uid, generated);
+    const saved = await saveWeeklyMealPlan(authenticatedUser.uid, {
+      ...generated,
+      inventoryFingerprint: getInventoryFingerprint(inventory.value, profile.value),
+    });
     plans.value = [saved, ...plans.value];
     currentPlanId.value = saved.id;
     selectedDay.value = 'Monday';
@@ -644,12 +808,12 @@ ion-segment-button { min-width: 62px; --indicator-color: #28785f; --color-checke
 .meal-category { margin: 0 0 4px; color: #43856a; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; }
 .meal-heading h2, .no-meal h2 { margin: 0; color: #284a39; font-size: 1.05rem; }
 .meal-ingredients { display: flex; flex-wrap: wrap; gap: 6px; }
-.ingredient-links { display: flex; flex-wrap: wrap; gap: 2px; margin: 4px 0; }
 .ingredient-chip { padding: 6px 8px; border-radius: 999px; background: #eff5f0; color: #42604c; font-size: 0.7rem; }
 .ingredient-unavailable { background: #fff0ed; color: #99493e; }
 .ingredient-unverified { background: #fff5df; color: #836328; }
-.missing-note, .unavailable-note { margin: 0; color: #8c572d; font-size: 0.75rem; line-height: 1.45; }
-.missing-note span { display: block; color: #7d827b; }
+.missing-note { margin: 0; color: #8c572d; font-size: 0.75rem; line-height: 1.45; }
+.nutrition-note { margin: 0; color: #68786d; font-size: 0.72rem; line-height: 1.45; }
+.nutrition-note ion-button { margin-inline-start: 2px; font-size: 0.7rem; }
 .nutrition-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .nutrition-summary > div { display: grid; gap: 4px; padding: 8px; border-radius: 9px; background: #f6f8f6; }
 .nutrition-summary span { color: #7a877f; font-size: 0.67rem; }
@@ -658,7 +822,10 @@ ion-segment-button { min-width: 62px; --indicator-color: #28785f; --color-checke
 .meal-actions ion-button { font-size: 0.7rem; text-transform: none; }
 .no-meal { padding: 8px 0; }
 .no-meal p:last-child { color: #77857c; font-size: 0.8rem; line-height: 1.45; }
-.safety-note { margin: 18px 0 0; padding: 12px; border: 1px solid #e5ece6; border-radius: 10px; color: #6c7b71; font-size: 0.75rem; line-height: 1.5; }
+.no-alternatives { padding: 14px; border-radius: 12px; background: #f5f8f5; }
+.no-alternatives p { margin: 0 0 8px; color: #53645a; font-size: 0.82rem; line-height: 1.45; }
+.no-alternatives p + p { color: #77857c; font-size: 0.76rem; }
+.no-alternatives ion-button { margin: 4px 0 0; text-transform: none; }
 .modal-content { max-width: 760px; margin: 0 auto; padding: 20px 16px 38px; }
 .modal-content h2 { margin: 5px 0 18px; color: #254536; }
 .modal-content h3 { margin: 18px 0 8px; color: #284a39; font-size: 0.95rem; }

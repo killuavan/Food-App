@@ -1,6 +1,7 @@
 <template>
   <section class="nutrition-search-panel">
     <ion-searchbar
+      v-if="!autoSelectMatch"
       v-model="searchText"
       placeholder="Search foods in USDA FoodData Central"
       aria-label="Search USDA foods"
@@ -9,9 +10,12 @@
     />
 
     <p v-if="errorMessage" class="api-error" role="alert">{{ errorMessage }}</p>
+    <p v-else-if="autoSelectMatch && loadingSearch" class="search-hint">
+      Looking up USDA nutrition for “{{ searchText }}”…
+    </p>
     <ion-progress-bar v-if="loadingSearch" type="indeterminate" aria-label="Searching USDA foods" />
 
-    <div v-if="!loadingSearch && searchPage?.foods.length" class="result-list">
+    <div v-if="!autoSelectMatch && !loadingSearch && searchPage?.foods.length" class="result-list">
       <ion-card v-for="food in searchPage.foods" :key="food.fdcId" class="result-card">
         <ion-card-content>
           <div class="result-copy">
@@ -35,31 +39,43 @@
       </div>
     </div>
 
-    <p v-else-if="hasSearched && !loadingSearch && !errorMessage" class="empty-results">
+    <p v-else-if="autoSelectMatch && hasSearched && !loadingSearch && !profile && !errorMessage" class="empty-results">
+      Nutrition was not found automatically for “{{ searchText }}”. Try a more specific food name.
+    </p>
+    <p v-else-if="!autoSelectMatch && hasSearched && !loadingSearch && !errorMessage" class="empty-results">
       No USDA foods matched this search.
     </p>
-    <p v-else-if="!hasSearched" class="search-hint">
-      Search the USDA database for verified food descriptions and nutrient data.
+    <p v-else-if="!hasSearched && !profile" class="search-hint">
+      {{ autoSelectMatch
+        ? 'Nutrition will appear here automatically when you enter a food name.'
+        : 'Search the USDA database for verified food descriptions and nutrient data.' }}
     </p>
 
     <ion-card v-if="profile" class="nutrition-card">
       <ion-card-content>
         <div class="selected-heading">
           <div>
-            <p class="eyebrow">USDA FOOD DATA CENTRAL</p>
+            <p class="eyebrow">{{ profile.source }}</p>
             <h2>{{ profile.description }}</h2>
             <p>{{ profile.dataType }}<span v-if="profile.foodCategory"> · {{ profile.foodCategory }}</span></p>
             <p>FDC ID: {{ profile.fdcId }}<span v-if="profile.brandOwner"> · {{ profile.brandOwner }}</span></p>
           </div>
-          <ion-button fill="clear" size="small" @click="emit('selected', profile)">
+          <ion-note v-if="autoLinked" class="auto-linked-note" color="success">
+            <ion-icon :icon="checkmarkCircleOutline" />
+            Automatically linked · verify this match
+          </ion-note>
+          <ion-button v-else fill="clear" size="small" @click="emit('selected', profile)">
             <ion-icon slot="start" :icon="checkmarkCircleOutline" />
-            Use this food
+            {{ linkToInventory ? 'Link this food' : 'Use this food' }}
           </ion-button>
         </div>
 
         <p class="basis-note">
           Nutrients {{ profile.basisGrams === null ? profile.basisDescription : 'normalized to per 100 g' }}.
           <span v-if="profile.householdServing">Serving: {{ profile.householdServing }}.</span>
+        </p>
+        <p v-if="linkToInventory" class="basis-note">
+          Verify that the selected food matches the inventory item before linking it.
         </p>
         <div v-if="profile.portions.length" class="portion-list">
           <span>USDA portions with gram weights:</span>
@@ -96,17 +112,21 @@ import {
   IonCard,
   IonCardContent,
   IonIcon,
+  IonNote,
   IonProgressBar,
   IonSearchbar,
   IonSpinner,
 } from '@ionic/vue';
 import { checkmarkCircleOutline } from 'ionicons/icons';
 import { getUsdaFoodDetails, searchUsdaFoods } from '../services/usdaFoodDataService';
+import { isConfidentFoodMatch } from '../utils/usdaFoodMatching';
 import { getAdditionalNutrients, type NutritionProfile, type UsdaFoodSearchResult, type UsdaSearchPage } from '../utils/usdaNutrition';
 
 const props = defineProps<{
   initialProfile?: NutritionProfile | null;
   initialSearch?: string;
+  linkToInventory?: boolean;
+  autoSelectMatch?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -137,35 +157,54 @@ watch(() => props.initialProfile, (value) => {
 const loadingSearch = ref(false);
 const loadingDetails = ref(false);
 const hasSearched = ref(false);
+const autoLinked = ref(false);
 const errorMessage = ref('');
 const selectedFdcId = ref<number | null>(null);
 let searchSequence = 0;
 let detailsSequence = 0;
+let initialSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
 const additionalNutrients = computed(() => profile.value
   ? getAdditionalNutrients(profile.value, primaryNutrients.map((nutrient) => nutrient.id))
   : []);
 
-watch(() => props.initialSearch, (value) => {
+watch(() => props.initialSearch, (value, previousValue) => {
   const query = value?.trim() ?? '';
-  if (!query || query === searchText.value.trim()) return;
+  if (initialSearchTimer) clearTimeout(initialSearchTimer);
+  if (!query) {
+    if (props.autoSelectMatch && previousValue?.trim()) {
+      searchText.value = '';
+      void searchFoods('', false);
+    }
+    return;
+  }
+  if (query === searchText.value.trim()) return;
   searchText.value = query;
-  void searchFoods(query);
+  if (!props.autoSelectMatch) {
+    void searchFoods(query, false);
+    return;
+  }
+  initialSearchTimer = setTimeout(() => {
+    void searchFoods(query, true);
+    initialSearchTimer = null;
+  }, 650);
 }, { immediate: true });
 
 onUnmounted(() => {
   searchSequence += 1;
   detailsSequence += 1;
+  if (initialSearchTimer) clearTimeout(initialSearchTimer);
 });
 
 async function search(event: CustomEvent<{ value?: string | null }>): Promise<void> {
   searchText.value = event.detail.value ?? searchText.value;
-  await searchFoods(searchText.value.trim());
+  await searchFoods(searchText.value.trim(), false);
 }
 
-async function searchFoods(query: string): Promise<void> {
+async function searchFoods(query: string, autoSelectMatch: boolean): Promise<void> {
   const sequence = ++searchSequence;
   detailsSequence += 1;
+  autoLinked.value = false;
   loadingDetails.value = false;
   selectedFdcId.value = null;
   searchPage.value = null;
@@ -176,8 +215,16 @@ async function searchFoods(query: string): Promise<void> {
 
   loadingSearch.value = true;
   try {
-    const result = await searchUsdaFoods(query, 1);
-    if (sequence === searchSequence) searchPage.value = result;
+    let result = await searchUsdaFoods(query, 1, autoSelectMatch ? 25 : 10);
+    let match = autoSelectMatch ? findAutoMatch(query, result.foods) : undefined;
+    if (autoSelectMatch && !match && !/\b(raw|cooked|dry|dried|as sold)\b/i.test(query)) {
+      result = await searchUsdaFoods(`${query} raw`, 1, 25);
+      match = findAutoMatch(query, result.foods);
+    }
+    if (sequence === searchSequence) {
+      searchPage.value = result;
+      if (match) await selectFood(match, true);
+    }
   } catch (error) {
     if (sequence === searchSequence) {
       errorMessage.value = error instanceof Error ? error.message : String(error);
@@ -205,15 +252,20 @@ async function loadPage(pageNumber: number): Promise<void> {
   }
 }
 
-async function selectFood(food: UsdaFoodSearchResult): Promise<void> {
+async function selectFood(food: UsdaFoodSearchResult, autoLink = false): Promise<void> {
   const sequence = ++detailsSequence;
   selectedFdcId.value = food.fdcId;
   loadingDetails.value = true;
+  autoLinked.value = false;
   profile.value = null;
   errorMessage.value = '';
   try {
     const result = await getUsdaFoodDetails(food.fdcId);
-    if (sequence === detailsSequence) profile.value = result;
+    if (sequence === detailsSequence) {
+      profile.value = result;
+      autoLinked.value = autoLink;
+      if (autoLink) emit('selected', result);
+    }
   } catch (error) {
     if (sequence === detailsSequence) {
       errorMessage.value = error instanceof Error ? error.message : String(error);
@@ -226,6 +278,27 @@ async function selectFood(food: UsdaFoodSearchResult): Promise<void> {
 function formatNutrient(nutrition: NutritionProfile, id: string): string {
   const nutrient = nutrition.nutrients[id] ?? (id === '320' ? nutrition.nutrients['318'] : undefined);
   return nutrient ? `${formatNumber(nutrient.amount)} ${nutrient.unit}` : 'Not Available';
+}
+
+function findAutoMatch(query: string, foods: UsdaFoodSearchResult[]): UsdaFoodSearchResult | undefined {
+  return foods
+    .filter((food) => isConfidentFoodMatch(query, food.description))
+    .sort((a, b) => autoMatchScore(query, b) - autoMatchScore(query, a))[0];
+}
+
+function autoMatchScore(query: string, food: UsdaFoodSearchResult): number {
+  const queryWords = query.toLocaleLowerCase().match(/[a-z0-9]+/g) ?? [];
+  const descriptionWords = new Set(food.description.toLocaleLowerCase().match(/[a-z0-9]+/g) ?? []);
+  const exactWordMatches = queryWords.filter((word) => descriptionWords.has(word)).length;
+  const exactDescription = queryWords.join(' ') === [...descriptionWords].join(' ');
+  const dataTypeScore = /foundation/i.test(food.dataType)
+    ? 40
+    : /sr legacy/i.test(food.dataType)
+      ? 30
+      : /survey \(fndds\)/i.test(food.dataType)
+        ? 10
+        : /branded/i.test(food.dataType) ? 0 : 20;
+  return dataTypeScore + (exactDescription ? 100 : 0) + exactWordMatches;
 }
 
 function formatNumber(value: number): string {
@@ -259,6 +332,7 @@ function servingDescription(food: UsdaFoodSearchResult): string {
 .selected-heading h2 { margin: 0 0 5px; color: #203f32; font-size: 1.15rem; }
 .selected-heading p:not(.eyebrow) { margin: 3px 0; color: #77857c; font-size: 0.76rem; }
 .selected-heading ion-button { flex-shrink: 0; --color: #267352; font-size: 0.76rem; text-transform: none; }
+.auto-linked-note { display: flex; align-items: center; gap: 5px; flex-shrink: 0; font-size: 0.72rem; }
 .basis-note { margin: 14px 0 8px; color: #77857c; font-size: 0.75rem; }
 .portion-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; color: #728078; font-size: 0.73rem; }
 .portion-list ion-badge { font-weight: 500; }

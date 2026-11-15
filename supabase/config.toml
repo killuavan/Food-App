@@ -1,2 +1,5 @@
 [functions.send-inventory-notifications]
 verify_jwt = true
+
+[functions.usda-food-data]
+verify_jwt = true

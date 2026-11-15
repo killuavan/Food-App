@@ -9,6 +9,11 @@ export interface ScannedFoodProduct {
   packageDescription: string;
   servingSize: string;
   categories: string;
+  labels?: string;
+  allergens?: string;
+  traces?: string;
+  countries?: string;
+  packaging?: string;
   ingredients: string;
   category: FoodCategory;
   packageAmount: number | null;
@@ -29,6 +34,11 @@ interface OpenFoodFactsResponse {
     quantity?: string;
     serving_size?: string;
     categories?: string;
+    labels?: string;
+    allergens?: string;
+    traces?: string;
+    countries?: string;
+    packaging?: string;
     ingredients_text?: string;
     nutriments?: Record<string, unknown>;
   };
@@ -91,6 +101,11 @@ function mapProduct(barcode: string, raw: OpenFoodFactsResponse): ScannedFoodPro
     packageDescription,
     servingSize: product.serving_size?.trim() ?? '',
     categories,
+    labels: product.labels?.trim() ?? '',
+    allergens: product.allergens?.trim() ?? '',
+    traces: product.traces?.trim() ?? '',
+    countries: product.countries?.trim() ?? '',
+    packaging: product.packaging?.trim() ?? '',
     ingredients: product.ingredients_text?.trim() ?? '',
     category: mapCategory(categories),
     packageAmount: parsedPackageAmount?.amount ?? null,
@@ -114,7 +129,7 @@ export async function getOpenFoodFactsProduct(barcodeValue: string): Promise<Sca
     let response: Response;
     try {
       response = await fetch(
-        `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=code,product_name,product_name_en,brands,image_front_url,image_url,quantity,serving_size,categories,ingredients_text,nutriments`,
+        `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=code,product_name,product_name_en,brands,image_front_url,image_url,quantity,serving_size,categories,labels,allergens,traces,countries,packaging,ingredients_text,nutriments`,
         {
           headers: {
             Accept: 'application/json',

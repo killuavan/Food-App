@@ -22,9 +22,21 @@
           <form class="profile-form" @submit.prevent="saveAndContinue">
           <ion-card class="form-card measurements-card">
             <ion-card-content>
-              <p class="section-label">PROFILE SETUP</p>
               <h2>Measurements and activity</h2>
-              <p class="section-help">Measurements are used for BMI screening.</p>
+
+              <ion-item>
+                <ion-select
+                  v-model="draft.gender"
+                  label="Gender (optional)"
+                  interface="popover"
+                  :disabled="saving"
+                >
+                  <ion-select-option value="">Prefer not to say</ion-select-option>
+                  <ion-select-option value="female">Female</ion-select-option>
+                  <ion-select-option value="male">Male</ion-select-option>
+                </ion-select>
+              </ion-item>
+              <p v-if="errors.gender" class="field-error">{{ errors.gender }}</p>
 
               <ion-item>
                 <ion-input
@@ -38,7 +50,6 @@
                 />
               </ion-item>
               <p v-if="errors.dateOfBirth" class="field-error">{{ errors.dateOfBirth }}</p>
-              <ion-note>Enter a birth date or age for BMI screening context.</ion-note>
 
               <ion-item>
                 <ion-input
@@ -104,16 +115,13 @@
                   <ion-select-option v-for="level in activityLevels" :key="level" :value="level">{{ level }}</ion-select-option>
                 </ion-select>
               </ion-item>
-              <ion-note>Activity level does not set calorie targets.</ion-note>
               <p v-if="errors.activityLevel" class="field-error">{{ errors.activityLevel }}</p>
             </ion-card-content>
           </ion-card>
 
           <ion-card class="form-card preferences-card">
             <ion-card-content>
-              <p class="section-label">OPTIONAL DETAILS</p>
               <h2>Food and personal preferences</h2>
-              <p class="section-help">Used for meal preferences. Avoid sensitive medical details.</p>
 
               <ion-item>
                 <ion-textarea
@@ -156,18 +164,16 @@
 
           <ion-card class="bmi-card">
             <ion-card-content>
-              <p class="section-label">BMI RESULT</p>
+              <p class="section-label">BMI</p>
               <h2 v-if="bmiResult">{{ bmiResult.value.toFixed(2) }}</h2>
-              <p v-else class="bmi-placeholder">Enter height and weight to calculate BMI.</p>
+              <p v-else class="bmi-placeholder">Enter height and weight.</p>
               <p v-if="bmiResult?.category" class="bmi-category">{{ bmiResult.category }} · Adult screening category</p>
-              <p v-if="bmiResult" class="bmi-explanation">{{ bmiResult.explanation }}</p>
-              <p v-if="bmiResult" class="bmi-date">Calculated {{ bmiCalculationDate }} · Height in cm, weight in kg</p>
               <p class="bmi-disclaimer">BMI is a screening estimate, not a diagnosis.</p>
             </ion-card-content>
           </ion-card>
 
           <p v-if="!profileCompleted" class="completion-note">
-            Add age or birth date, height, weight, and activity level to complete your profile. You can also skip.
+            Complete age, height, weight, and activity level, or skip.
           </p>
           <div class="form-actions">
             <ion-button expand="block" type="submit" :disabled="saving || loading">
@@ -209,7 +215,6 @@ import {
   IonContent,
   IonInput,
   IonItem,
-  IonNote,
   IonPage,
   IonProgressBar,
   IonSelect,
@@ -258,19 +263,6 @@ const bmiResult = computed(() => calculateBmi(
   draft.value.weightKg,
   resolvedAge.value,
 ));
-const bmiCalculationDate = computed(() => {
-  const profile = storedProfile.value;
-  const unchanged = profile !== null
-    && profile.bmiValue === bmiResult.value?.value
-    && profile.dateOfBirth === draft.value.dateOfBirth
-    && profile.age === draft.value.age
-    && profile.heightCm === draft.value.heightCm
-    && profile.weightKg === draft.value.weightKg;
-  const date = unchanged && profile?.bmiCalculatedAt
-    ? new Date(profile.bmiCalculatedAt)
-    : new Date();
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date);
-});
 const profileCompleted = computed(() => isHealthProfileComplete(draft.value));
 const deleteButtons = [
   { text: 'Cancel', role: 'cancel' },
@@ -317,6 +309,7 @@ async function loadProfile(userId: string): Promise<void> {
     storedProfile.value = profile;
     if (profile) {
       draft.value = {
+        gender: profile.gender,
         dateOfBirth: profile.dateOfBirth,
         age: profile.age,
         heightCm: profile.heightCm,
@@ -432,17 +425,17 @@ async function removeProfile(): Promise<void> {
 .form-card, .bmi-card { margin: 0; border: 1px solid #e4ece6; border-radius: 15px; background: var(--app-card); box-shadow: 0 5px 16px rgb(28 65 48 / 4%); color: var(--app-text); }
 .form-card ion-card-content, .bmi-card ion-card-content { display: grid; gap: 9px; padding: 18px; }
 .form-card h2 { margin: 0; color: #244737; font-size: 1.1rem; }
-.section-help { margin: 0 0 4px; color: #77857c; font-size: 0.82rem; line-height: 1.5; }
+
 .form-card ion-item { --background: #f7f9f7; --color: #23342d; --border-color: #e4ece6; --border-radius: 10px; }
 .form-card ion-input, .form-card ion-textarea, .form-card ion-select { --color: #23342d; --placeholder-color: #77857c; }
-.form-card ion-note { padding: 0 10px; color: #728078; font-size: 0.72rem; line-height: 1.4; }
+
 .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .field-grid > div { min-width: 0; }
 .field-error { margin: 0; padding: 0 10px; color: var(--ion-color-danger); font-size: 0.76rem; }
 .bmi-card { background: #f6faf6; }
 .bmi-card h2 { margin: 0; color: #244737; font-size: 2rem; }
 .bmi-category { margin: 0; color: #2c795b; font-weight: 700; }
-.bmi-explanation, .bmi-date, .bmi-disclaimer, .bmi-placeholder { margin: 0; color: #65756a; font-size: 0.82rem; line-height: 1.5; }
+.bmi-disclaimer, .bmi-placeholder { margin: 0; color: #65756a; font-size: 0.82rem; line-height: 1.5; }
 .bmi-disclaimer { padding-top: 8px; border-top: 1px solid #e1ebe3; }
 .completion-note { margin: 0; color: #77857c; font-size: 0.78rem; line-height: 1.45; }
 .form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }

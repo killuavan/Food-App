@@ -170,35 +170,6 @@
           </ion-card>
         </section>
 
-        <section class="movement-section" aria-labelledby="movement-title">
-          <div class="section-heading">
-            <div>
-              <h2 id="movement-title">Movement &amp; meal planning</h2>
-            </div>
-          </div>
-          <ion-card class="activity-card">
-            <ion-card-content>
-              <span class="activity-icon"><ion-icon :icon="fitnessOutline" /></span>
-              <div>
-                <strong>Today's movement</strong>
-                <p>{{ exerciseMinutes === null ? '—' : `${exerciseMinutes} min` }} · {{ exerciseSessions === null ? '—' : exerciseSessions }} completed {{ exerciseSessions === 1 ? 'session' : 'sessions' }} · {{ exerciseCalories === null ? '—' : `${exerciseCalories} kcal estimated` }}</p>
-              </div>
-              <ion-button fill="clear" router-link="/exercise">View</ion-button>
-            </ion-card-content>
-          </ion-card>
-          <div class="other-tools">
-            <router-link to="/exercise" class="tool-link">
-              <ion-icon :icon="fitnessOutline" />
-              <span><strong>Exercise &amp; movement</strong><small>Workouts and activity history</small></span>
-              <ion-icon :icon="arrowForwardOutline" />
-            </router-link>
-            <router-link to="/weekly-nutrition" class="tool-link">
-              <ion-icon :icon="calendarOutline" />
-              <span><strong>Weekly meal plan</strong><small>Explore pantry-aware suggestions</small></span>
-              <ion-icon :icon="arrowForwardOutline" />
-            </router-link>
-          </div>
-        </section>
       </main>
       <ion-toast
         :is-open="Boolean(activityError)"
@@ -231,7 +202,6 @@ import {
   analyticsOutline,
   arrowForwardOutline,
   basketOutline,
-  calendarOutline,
   cartOutline,
   flameOutline,
   fitnessOutline,
@@ -293,6 +263,7 @@ const macroMetrics = [
 ] as const;
 const quickActions = [
   { title: 'Log food', route: '/consumption', icon: restaurantOutline, className: 'action-meals' },
+  { title: 'Exercise', route: '/exercise', icon: fitnessOutline, className: 'action-exercise' },
   { title: 'Food inventory', route: '/inventory', icon: basketOutline, className: 'action-inventory' },
   { title: 'Grocery list', route: '/grocery-list', icon: cartOutline, className: 'action-plan' },
   { title: 'Scan barcode', route: '/inventory', icon: scanOutline, className: 'action-scan' },
@@ -434,6 +405,7 @@ function barHeight(value: number): number {
 .quick-card:active { transform: scale(.98); box-shadow: 0 1px 5px rgb(22 55 43 / 8%); }
 .quick-icon { display: grid; width: 40px; height: 40px; flex: 0 0 40px; place-items: center; border-radius: 13px; font-size: 1.1rem; }
 .action-meals .quick-icon { background: #e8f5e9; color: #2e7d32; }
+.action-exercise .quick-icon { background: #e8f0fb; color: #607bb8; }
 .action-inventory .quick-icon { background: #f0eafe; color: #805ad5; }
 .action-scan .quick-icon { background: #fce8f1; color: #d44787; }
 .action-analytics .quick-icon { background: #e5f4fb; color: #1687ae; }

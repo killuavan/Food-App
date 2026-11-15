@@ -1,6 +1,8 @@
 # Barcode scanner setup
 
-The scanner uses `@capacitor-mlkit/barcode-scanning`, compatible with this project's Capacitor 8 installation. It scans EAN-13, EAN-8, UPC-A, and UPC-E. The browser UI supports manual barcode entry.
+The scanner uses `@capacitor-mlkit/barcode-scanning`, compatible with this project's Capacitor 8 installation. It scans Aztec, Codabar, Code 39, Code 93, Code 128, Data Matrix, EAN-8, EAN-13, ITF, PDF417, QR Code, UPC-A, and UPC-E barcodes. Food product details are looked up only for EAN/UPC codes; other formats are shown as scanned values and can be added manually. The browser UI supports manual EAN/UPC entry.
+
+Indian EAN-13 barcodes (often beginning with GS1 prefix `890`) use the same supported EAN-13 format; no India-specific scanner format is required. Product lookup depends on the product being listed in Open Food Facts.
 
 ## Android
 

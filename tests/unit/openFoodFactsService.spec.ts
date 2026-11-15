@@ -17,6 +17,7 @@ describe('Open Food Facts product integration', () => {
     expect(isSupportedFoodBarcode('12345670')).toBe(true);
     expect(isSupportedFoodBarcode('123456789012')).toBe(true);
     expect(isSupportedFoodBarcode('1234567890123')).toBe(true);
+    expect(isSupportedFoodBarcode('8901234567890')).toBe(true);
     expect(isSupportedFoodBarcode('1234567')).toBe(false);
     expect(isSupportedFoodBarcode('12345678901234')).toBe(false);
     expect(isSupportedFoodBarcode('abc12345')).toBe(false);
@@ -33,6 +34,11 @@ describe('Open Food Facts product integration', () => {
         quantity: '1 L',
         serving_size: '200 ml',
         categories: 'Plant-based beverages',
+        labels: 'Vegan',
+        allergens: 'soybeans',
+        traces: 'nuts',
+        countries: 'United States',
+        packaging: 'Carton',
         ingredients_text: 'Water, oats',
         nutriments: {
           'energy-kcal_100g': 46,
@@ -56,6 +62,12 @@ describe('Open Food Facts product integration', () => {
       packageAmount: 1,
       packageUnit: 'L',
       category: 'Beverages',
+      labels: 'Vegan',
+      allergens: 'soybeans',
+      traces: 'nuts',
+      countries: 'United States',
+      packaging: 'Carton',
+      ingredients: 'Water, oats',
     });
     expect(product?.nutritionProfile).toMatchObject({
       fdcId: null,

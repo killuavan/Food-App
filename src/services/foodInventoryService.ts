@@ -13,7 +13,7 @@ import {
 } from './supabaseDataCompat';
 import { getSupabaseServices } from './supabaseClient';
 import { getSupabaseErrorMessage } from './supabaseErrors';
-import type { FoodItem, FoodItemDraft } from '../utils/foodInventory';
+import { foodWeightStates, type FoodItem, type FoodItemDraft } from '../utils/foodInventory';
 
 export const foodInventoryUpdatedEventName = 'food-inventory-updated';
 export const inventoryMovementUpdatedEventName = 'inventory-movement-updated';
@@ -67,12 +67,22 @@ export async function listFoodItems(userId: string): Promise<FoodItem[]> {
       const data = entry.data();
       const createdAt = typeof data.createdAt === 'string' ? data.createdAt : data.createdAt?.toDate?.().toISOString() ?? '';
       const updatedAt = typeof data.updatedAt === 'string' ? data.updatedAt : data.updatedAt?.toDate?.().toISOString() ?? '';
+      const weightState = typeof data.weightState === 'string'
+        ? foodWeightStates.find((state) => state === data.weightState) ?? null
+        : null;
+      const pieceWeightGrams = typeof data.pieceWeightGrams === 'number'
+        && Number.isFinite(data.pieceWeightGrams)
+        && data.pieceWeightGrams > 0
+        ? data.pieceWeightGrams
+        : null;
       return {
         id: entry.id,
         foodName: data.foodName,
         category: data.category,
         quantity: data.quantity,
         unit: data.unit,
+        weightState,
+        pieceWeightGrams,
         lowStockThreshold: data.lowStockThreshold,
         purchaseDate: data.purchaseDate ?? '',
         expirationDate: typeof data.expirationDate === 'string' ? data.expirationDate : '',

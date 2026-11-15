@@ -12,36 +12,23 @@
         </header>
 
         <ion-progress-bar v-if="loading" type="indeterminate" aria-label="Loading exercise dashboard" />
-        <ion-card v-if="errorMessage" class="error-card">
-          <ion-card-content role="alert">{{ errorMessage }}</ion-card-content>
+        <ion-card v-if="dashboardErrorMessage" class="error-card">
+          <ion-card-content role="alert">{{ dashboardErrorMessage }}</ion-card-content>
         </ion-card>
 
         <section aria-label="Today's activity">
           <div class="metric-grid">
             <ion-card class="metric-card">
               <ion-card-content>
-                <p class="metric-label"><ion-icon :icon="restaurantOutline" aria-hidden="true" /> Daily food intake</p>
-                <div class="metric-value">{{ dailyIntake.toLocaleString() }} <span>kcal</span></div>
-                <p class="metric-note">Nutrition context, not a workout target</p>
-                <div class="intake-edit">
-                  <ion-input
-                    v-model.number="intakeDraft"
-                    type="number"
-                    inputmode="numeric"
-                    min="0"
-                    max="20000"
-                    label="Today's total (kcal)"
-                    label-placement="stacked"
-                    aria-label="Today's total food calories"
-                  />
-                  <ion-button size="small" fill="outline" @click="saveIntake">Save</ion-button>
-                </div>
+                <p class="metric-label"><ion-icon :icon="restaurantOutline" aria-hidden="true" /> Calories eaten today</p>
+                <div class="metric-value">{{ calorieIntakeLabel }} <span>kcal</span></div>
+                <p class="metric-note">{{ calorieIntakeNote }}</p>
               </ion-card-content>
             </ion-card>
             <ion-card class="metric-card">
               <ion-card-content>
                 <p class="metric-label"><ion-icon :icon="timeOutline" aria-hidden="true" /> Workout time</p>
-                <div class="metric-value">{{ todayMinutes }} <span>min</span></div>
+                <div class="metric-value">{{ todayMinutesLabel }} <span>min</span></div>
                 <p class="metric-note">Completed today</p>
               </ion-card-content>
             </ion-card>
@@ -152,15 +139,28 @@
                   <div>
                     <p class="category-label">{{ categoryLabel(exercise.category) }}</p>
                     <h3>{{ exercise.name }}</h3>
+                    <span v-if="exercise.homeFriendly" class="home-workout-label">At home · no gym equipment</span>
                   </div>
                   <span class="difficulty">{{ capitalize(exercise.difficulty) }}</span>
                 </div>
                 <p class="exercise-description">{{ exercise.description }}</p>
+                <p class="workout-prescription">
+                  <template v-if="exercise.trackingMode === 'repetitions'">
+                    Suggested: {{ exercise.suggestedSets }} sets × {{ exercise.suggestedRepsPerSet }} reps
+                    ({{ exercise.targetRepetitions }} total)
+                  </template>
+                  <template v-else>Suggested: {{ exercise.durationMinutes }} minutes at a comfortable pace</template>
+                </p>
                 <div class="workout-stats">
-                  <span>{{ exercise.durationMinutes }} min</span>
+                  <span v-if="exercise.trackingMode === 'repetitions'">{{ exercise.targetRepetitions }} reps</span>
+                  <span v-else>{{ exercise.durationMinutes }} min</span>
                   <span>~{{ exercise.estimatedCalories }} kcal</span>
                 </div>
-                <p class="estimate-note">Estimated expenditure</p>
+                <p class="estimate-note">
+                  {{ exercise.trackingMode === 'repetitions'
+                    ? 'Estimate includes ~3 sec per rep and 1 min rest between sets'
+                    : 'Estimated expenditure' }}
+                </p>
                 <div class="card-actions">
                   <ion-button fill="outline" @click="openTutorial(exercise)">Watch tutorial</ion-button>
                   <ion-button @click="startWorkout(exercise)">Start workout</ion-button>
@@ -182,7 +182,14 @@
                 <div class="history-icon" slot="start">{{ iconFor(workout.exerciseId) }}</div>
                 <ion-label>
                   <h3>{{ workout.exerciseName }}</h3>
-                  <p>{{ formatWorkoutDate(workout.workoutDate) }} · {{ workout.durationMinutes }} min · ~{{ workout.estimatedCalories }} kcal</p>
+                  <p>
+                    {{ formatWorkoutDate(workout.workoutDate) }} ·
+                    <template v-if="workout.repetitions !== undefined">
+                      {{ workout.repetitions }} reps · {{ formatWorkoutDuration(workout.durationMinutes) }}
+                    </template>
+                    <template v-else>{{ formatWorkoutDuration(workout.durationMinutes) }}</template>
+                    · ~{{ workout.estimatedCalories }} kcal
+                  </p>
                 </ion-label>
                 <span class="completed-tag">Completed</span>
               </ion-item>
@@ -194,7 +201,7 @@
         </section>
       </main>
 
-      <ion-modal :is-open="Boolean(activeWorkout)" @didDismiss="closeWorkout">
+      <ion-modal class="workout-session-modal" :is-open="Boolean(activeWorkout)" @didDismiss="closeWorkout">
         <ion-header>
           <ion-toolbar>
             <ion-title>{{ activeWorkout?.name ?? 'Workout' }}</ion-title>
@@ -205,29 +212,39 @@
           <div v-if="activeWorkout" class="workout-modal">
             <div class="modal-exercise-icon">{{ activeWorkout.icon }}</div>
             <p>{{ activeWorkout.description }}</p>
-            <ion-item>
+            <ion-item v-if="activeWorkout.trackingMode === 'repetitions'">
               <ion-input
-                v-model.number="durationDraft"
+                v-model.number="repetitionsDraft"
                 type="number"
                 inputmode="numeric"
                 min="1"
-                max="240"
-                label="Workout duration (minutes)"
+                max="1000"
+                :label="`Total repetitions (suggested ${activeWorkout.targetRepetitions})`"
                 label-placement="stacked"
               />
             </ion-item>
+            <div class="elapsed-timer" role="timer" aria-live="off">
+              <span>Elapsed time</span>
+              <strong>{{ elapsedTimeLabel }}</strong>
+              <small>{{ timerRunning ? 'Workout in progress' : 'Timer stopped' }}</small>
+            </div>
             <div class="live-estimate">
               <span>Estimated calories burned</span>
               <strong>~{{ activeWorkoutEstimate }} kcal</strong>
             </div>
-            <p class="estimate-note">Estimate based on MET intensity and your saved body weight.</p>
-            <ion-button expand="block" @click="requestWorkoutCompletion">Complete workout</ion-button>
+            <p class="estimate-note">
+              {{ activeWorkout.trackingMode === 'repetitions'
+                ? 'Calorie estimate uses your elapsed time, MET intensity, and saved body weight.'
+                : 'Calorie estimate uses your elapsed time, MET intensity, and saved body weight.' }}
+            </p>
+            <p v-if="activeWorkout.id === 'bird-dog'" class="estimate-note">Count each side as one repetition.</p>
+            <ion-button expand="block" :disabled="elapsedSeconds < 1" @click="requestWorkoutCompletion">Complete workout</ion-button>
             <ion-button expand="block" fill="clear" @click="closeWorkout">Cancel</ion-button>
           </div>
         </ion-content>
       </ion-modal>
 
-      <ion-modal :is-open="Boolean(activeTutorial)" @didDismiss="activeTutorial = null">
+      <ion-modal class="tutorial-session-modal" :is-open="Boolean(activeTutorial)" @didDismiss="activeTutorial = null">
         <ion-header>
           <ion-toolbar>
             <ion-title>Tutorial: {{ activeTutorial?.name ?? '' }}</ion-title>
@@ -262,7 +279,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
+import type { AuthenticatedUser as User } from '../services/authService';
 import AppNavigation from '../components/AppNavigation.vue';
 import {
   IonAlert,
@@ -288,33 +306,49 @@ import { checkmarkDoneOutline, flameOutline, restaurantOutline, timeOutline } fr
 import {
   exerciseCategories,
   exerciseCatalog,
-  getDailyFoodIntake,
   getExercisePreferences,
   getRecommendations,
   getWorkoutHistory,
   getYouTubeSearchUrl,
   saveCompletedWorkout,
-  saveDailyFoodIntake,
+  saveCompletedRepetitionWorkout,
   saveExercisePreferences,
   estimateCalories,
+  estimateRepetitionCalories,
   type Exercise,
   type ExerciseCategory,
   type ExercisePreferences,
   type ExerciseRecommendation,
   type WorkoutLog,
 } from '../services/exerciseService';
+import { observeAuth } from '../services/authService';
+import { foodConsumptionUpdatedEventName, listFoodConsumptions } from '../services/foodConsumptionService';
+import { getLocalDate, type FoodConsumption } from '../utils/foodConsumption';
+import { getHealthProfile } from '../services/healthProfileService';
+import type { Gender } from '../utils/healthProfile';
+import { summarizeDailyCalories } from '../utils/dailyNutrition';
 
 const availableTimeOptions = [10, 15, 20, 30, 45, 60, 90, 120];
 const loading = ref(true);
 const errorMessage = ref('');
+const user = ref<User | null>(null);
+const foodRecords = ref<FoodConsumption[]>([]);
+const healthProfileGender = ref<Gender>('');
+const healthProfileFitnessGoal = ref('');
+const profileErrorMessage = ref('');
 const preferences = ref<ExercisePreferences>({ ...getDefaults() });
 const workoutHistory = ref<WorkoutLog[]>([]);
-const dailyIntake = ref(0);
-const intakeDraft = ref<number>(0);
 const activeWorkout = ref<ExerciseRecommendation | null>(null);
 const activeTutorial = ref<Exercise | null>(null);
-const durationDraft = ref<number>(20);
+const repetitionsDraft = ref<number>(10);
+const elapsedSeconds = ref(0);
+const timerRunning = ref(false);
 const showCompletionConfirmation = ref(false);
+let unsubscribe: (() => void) | undefined;
+let loadSequence = 0;
+let workoutStartedAt = 0;
+let timerInterval: ReturnType<typeof setInterval> | undefined;
+let completionTimerPaused = false;
 
 function getDefaults(): ExercisePreferences {
   return {
@@ -327,7 +361,25 @@ function getDefaults(): ExercisePreferences {
   };
 }
 
-const recommendations = computed(() => getRecommendations(preferences.value, workoutHistory.value));
+const recommendations = computed(() => getRecommendations(
+  preferences.value,
+  workoutHistory.value,
+  healthProfileGender.value,
+  healthProfileFitnessGoal.value,
+));
+const dashboardErrorMessage = computed(() => errorMessage.value || profileErrorMessage.value);
+const calorieSummary = computed(() => summarizeDailyCalories(foodRecords.value, getLocalDate()));
+const calorieIntakeLabel = computed(() => calorieSummary.value.caloriesKcal === null
+  ? '—'
+  : new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(calorieSummary.value.caloriesKcal));
+const calorieIntakeNote = computed(() => {
+  if (!user.value) return 'Sign in to see calories from your food logs';
+  if (calorieSummary.value.status === 'no-records') return 'No food logged today';
+  if (calorieSummary.value.status === 'incomplete') {
+    return `Available data · ${calorieSummary.value.entriesWithCalories} of ${calorieSummary.value.entryCount} foods`;
+  }
+  return `${calorieSummary.value.entryCount} logged ${calorieSummary.value.entryCount === 1 ? 'food' : 'foods'}`;
+});
 const todayWorkouts = computed(() => workoutHistory.value.filter((workout) => {
   const date = new Date(workout.workoutDate);
   const today = new Date();
@@ -336,30 +388,114 @@ const todayWorkouts = computed(() => workoutHistory.value.filter((workout) => {
     && date.getDate() === today.getDate();
 }));
 const todayMinutes = computed(() => todayWorkouts.value.reduce((sum, workout) => sum + workout.durationMinutes, 0));
+const todayMinutesLabel = computed(() => new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(todayMinutes.value));
 const todayCalories = computed(() => todayWorkouts.value.reduce((sum, workout) => sum + workout.estimatedCalories, 0));
+const elapsedTimeLabel = computed(() => {
+  const minutes = Math.floor(elapsedSeconds.value / 60);
+  const seconds = elapsedSeconds.value % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+});
 const activeWorkoutEstimate = computed(() => {
-  if (!activeWorkout.value || !Number.isFinite(durationDraft.value) || durationDraft.value <= 0) return 0;
-  return estimateCalories(activeWorkout.value.met, durationDraft.value, preferences.value.weightKg);
+  if (!activeWorkout.value) return 0;
+  if (activeWorkout.value.trackingMode === 'repetitions') {
+    if (!Number.isInteger(repetitionsDraft.value) || repetitionsDraft.value <= 0) return 0;
+    return estimateRepetitionCalories(
+      activeWorkout.value.met,
+      repetitionsDraft.value,
+      activeWorkout.value.suggestedRepsPerSet ?? repetitionsDraft.value,
+      preferences.value.weightKg,
+      elapsedSeconds.value,
+    );
+  }
+  return estimateCalories(activeWorkout.value.met, elapsedSeconds.value / 60, preferences.value.weightKg);
 });
 const todayLabel = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date());
 
 const completionAlertButtons = [
-  { text: 'Keep going', role: 'cancel' },
+  { text: 'Keep going', role: 'cancel', handler: resumeWorkoutTimer },
   { text: 'Confirm completion', role: 'confirm', handler: confirmWorkoutCompletion },
 ];
 
 onMounted(() => {
+  unsubscribe = observeAuth((authenticatedUser) => {
+    user.value = authenticatedUser;
+    foodRecords.value = [];
+    healthProfileGender.value = '';
+    healthProfileFitnessGoal.value = '';
+    profileErrorMessage.value = '';
+    errorMessage.value = '';
+    if (authenticatedUser) {
+      void loadFoodRecords(authenticatedUser);
+      void loadExerciseProfile(authenticatedUser);
+    }
+    else loading.value = false;
+  }, (error) => {
+    loading.value = false;
+    errorMessage.value = error.message;
+  });
+  window.addEventListener(foodConsumptionUpdatedEventName, handleFoodConsumptionUpdated);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
   try {
     preferences.value = getExercisePreferences();
     workoutHistory.value = getWorkoutHistory();
-    dailyIntake.value = getDailyFoodIntake();
-    intakeDraft.value = dailyIntake.value;
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
-  } finally {
     loading.value = false;
   }
 });
+
+onUnmounted(() => {
+  clearWorkoutTimer();
+  unsubscribe?.();
+  window.removeEventListener(foodConsumptionUpdatedEventName, handleFoodConsumptionUpdated);
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
+});
+
+async function loadFoodRecords(authenticatedUser: User): Promise<void> {
+  const sequence = ++loadSequence;
+  loading.value = true;
+  try {
+    const records = await listFoodConsumptions(authenticatedUser.uid);
+    if (sequence !== loadSequence || user.value?.uid !== authenticatedUser.uid) return;
+    foodRecords.value = records;
+    errorMessage.value = '';
+  } catch (error) {
+    if (sequence === loadSequence && user.value?.uid === authenticatedUser.uid) {
+      errorMessage.value = error instanceof Error ? error.message : String(error);
+    }
+  } finally {
+    if (sequence === loadSequence) loading.value = false;
+  }
+}
+
+async function loadExerciseProfile(authenticatedUser: User): Promise<void> {
+  try {
+    const profile = await getHealthProfile(authenticatedUser.uid);
+    if (user.value?.uid !== authenticatedUser.uid) return;
+    healthProfileGender.value = profile?.gender ?? '';
+    healthProfileFitnessGoal.value = profile?.fitnessGoal ?? '';
+    profileErrorMessage.value = '';
+  } catch (error) {
+    if (user.value?.uid === authenticatedUser.uid) {
+      profileErrorMessage.value = `Unable to load gender-based exercise suggestions: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+}
+
+function handleFoodConsumptionUpdated(event: Event): void {
+  const detail = (event as CustomEvent<{ userId?: string }>).detail;
+  const authenticatedUser = user.value;
+  if (authenticatedUser && detail?.userId === authenticatedUser.uid) {
+    void loadFoodRecords(authenticatedUser);
+  }
+}
+
+function handleVisibilityChange(): void {
+  if (document.visibilityState === 'visible' && user.value) {
+    void loadFoodRecords(user.value);
+    void loadExerciseProfile(user.value);
+  }
+}
 
 function savePreferences(): void {
   try {
@@ -371,44 +507,75 @@ function savePreferences(): void {
   }
 }
 
-function saveIntake(): void {
-  try {
-    saveDailyFoodIntake(intakeDraft.value);
-    dailyIntake.value = getDailyFoodIntake();
-    errorMessage.value = '';
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+function startWorkout(exercise: ExerciseRecommendation): void {
+  activeWorkout.value = exercise;
+  repetitionsDraft.value = exercise.targetRepetitions ?? 10;
+  elapsedSeconds.value = 0;
+  completionTimerPaused = false;
+  workoutStartedAt = Date.now();
+  timerRunning.value = true;
+  timerInterval = setInterval(updateElapsedTime, 250);
+}
+
+function updateElapsedTime(): void {
+  if (timerRunning.value) {
+    elapsedSeconds.value = Math.floor((Date.now() - workoutStartedAt) / 1000);
   }
 }
 
-function startWorkout(exercise: ExerciseRecommendation): void {
-  activeWorkout.value = exercise;
-  durationDraft.value = exercise.durationMinutes;
+function clearWorkoutTimer(): void {
+  if (timerInterval !== undefined) clearInterval(timerInterval);
+  timerInterval = undefined;
+  timerRunning.value = false;
 }
 
 function closeWorkout(): void {
+  clearWorkoutTimer();
   activeWorkout.value = null;
   showCompletionConfirmation.value = false;
+  completionTimerPaused = false;
 }
 
 function requestWorkoutCompletion(): void {
-  if (!activeWorkout.value || !Number.isInteger(durationDraft.value) || durationDraft.value < 1 || durationDraft.value > 240) {
-    errorMessage.value = 'Choose a whole-number workout duration from 1 to 240 minutes.';
+  if (!activeWorkout.value || elapsedSeconds.value < 1) {
+    errorMessage.value = 'Complete at least one second of your workout before saving it.';
     return;
   }
+  if (activeWorkout.value.trackingMode === 'repetitions'
+    && (!Number.isInteger(repetitionsDraft.value) || repetitionsDraft.value < 1 || repetitionsDraft.value > 1000)) {
+    errorMessage.value = 'Enter a whole-number repetition count from 1 to 1,000.';
+    return;
+  }
+  updateElapsedTime();
+  clearWorkoutTimer();
+  completionTimerPaused = true;
   showCompletionConfirmation.value = true;
+}
+
+function resumeWorkoutTimer(): void {
+  if (!activeWorkout.value || !completionTimerPaused) return;
+  workoutStartedAt = Date.now() - elapsedSeconds.value * 1000;
+  timerRunning.value = true;
+  timerInterval = setInterval(updateElapsedTime, 250);
+  completionTimerPaused = false;
 }
 
 function confirmWorkoutCompletion(): void {
   if (!activeWorkout.value) return;
   try {
-    saveCompletedWorkout(activeWorkout.value, durationDraft.value);
+    const finishedAt = new Date();
+    if (activeWorkout.value.trackingMode === 'repetitions') {
+      saveCompletedRepetitionWorkout(activeWorkout.value, repetitionsDraft.value, finishedAt, elapsedSeconds.value);
+    } else {
+      saveCompletedWorkout(activeWorkout.value, elapsedSeconds.value / 60, finishedAt);
+    }
     workoutHistory.value = getWorkoutHistory();
     errorMessage.value = '';
     closeWorkout();
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
     showCompletionConfirmation.value = false;
+    resumeWorkoutTimer();
   }
 }
 
@@ -435,6 +602,13 @@ function iconFor(exerciseId: string): string {
 function formatWorkoutDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 }
+
+function formatWorkoutDuration(durationMinutes: number): string {
+  const totalSeconds = Math.max(0, Math.round(durationMinutes * 60));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')} min`;
+}
 </script>
 
 <style scoped>
@@ -459,7 +633,6 @@ ion-header ion-title {
 .workout-title-row,
 .preferences-actions,
 .card-actions,
-.intake-edit,
 .workout-stats {
   display: flex;
   align-items: center;
@@ -651,16 +824,6 @@ ion-header ion-title {
   line-height: 1.4;
 }
 
-.intake-edit {
-  align-items: flex-end;
-  margin-top: 10px;
-}
-
-.intake-edit ion-input {
-  max-width: 200px;
-  --highlight-color-focused: var(--ion-color-primary);
-}
-
 .preferences-section,
 .recommendations-section,
 .history-section {
@@ -780,6 +943,17 @@ ion-header ion-title {
   font-size: 1.05rem;
 }
 
+.home-workout-label {
+  display: inline-block;
+  margin-top: 7px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #e8f5e9;
+  color: #2e7d32;
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
 .category-label {
   font-size: 0.64rem;
 }
@@ -809,6 +983,17 @@ ion-header ion-title {
 .workout-stats span + span {
   padding-left: 12px;
   border-left: 1px solid var(--ion-color-step-150, #e5e8eb);
+}
+
+.workout-prescription {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #edf6f0;
+  color: #28523e;
+  font-size: 0.8rem;
+  font-weight: 650;
+  line-height: 1.45;
 }
 
 .card-actions {
@@ -863,22 +1048,34 @@ ion-header ion-title {
   color: var(--ion-color-danger);
 }
 
+ion-modal.workout-session-modal {
+  --width: min(520px, calc(100% - 28px));
+  --height: min(540px, calc(100% - 28px));
+  --border-radius: 18px;
+}
+
+ion-modal.tutorial-session-modal {
+  --width: min(600px, calc(100% - 28px));
+  --height: min(680px, calc(100% - 28px));
+  --border-radius: 18px;
+}
+
 .workout-modal,
 .tutorial-modal {
   max-width: 560px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 20px 24px 24px;
 }
 
 .modal-exercise-icon {
   display: grid;
-  width: 90px;
-  height: 90px;
-  margin: 12px auto 20px;
+  width: 76px;
+  height: 76px;
+  margin: 4px auto 14px;
   place-items: center;
-  border-radius: 24px;
+  border-radius: 20px;
   background: linear-gradient(135deg, #e1f5ef, #edf4fd);
-  font-size: 3.5rem;
+  font-size: 3rem;
 }
 
 .workout-modal > p,
@@ -887,11 +1084,43 @@ ion-header ion-title {
   line-height: 1.6;
 }
 
+.workout-modal > ion-item {
+  --background: #f7f9f7;
+  --border-radius: 12px;
+  margin-top: 8px;
+}
+
+.elapsed-timer {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #dfeae2;
+  border-radius: 14px;
+  background: #f3f8f4;
+  color: #617267;
+  font-size: 0.82rem;
+}
+
+.elapsed-timer strong {
+  color: #173f35;
+  font-size: 2rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.elapsed-timer small {
+  color: var(--ion-color-medium);
+}
+
 .live-estimate {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  margin: 18px 0 0;
-  padding: 16px 0;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 14px 0;
   border-top: 1px solid var(--ion-color-step-150, #e5e8eb);
   font-size: 0.9rem;
 }
@@ -901,7 +1130,14 @@ ion-header ion-title {
 }
 
 .workout-modal > ion-button:first-of-type {
-  margin-top: 24px;
+  margin-top: 14px;
+  --border-radius: 11px;
+  text-transform: none;
+}
+
+.workout-modal > ion-button:last-of-type {
+  margin-top: 2px;
+  text-transform: none;
 }
 
 .tutorial-thumbnail {
@@ -951,6 +1187,25 @@ ion-header ion-title {
 }
 
 @media (max-width: 600px) {
+  ion-modal.workout-session-modal,
+  ion-modal.tutorial-session-modal {
+    --width: calc(100% - 20px);
+    --border-radius: 16px;
+  }
+
+  ion-modal.workout-session-modal {
+    --height: min(540px, calc(100% - 20px));
+  }
+
+  ion-modal.tutorial-session-modal {
+    --height: min(680px, calc(100% - 20px));
+  }
+
+  .workout-modal,
+  .tutorial-modal {
+    padding: 16px 18px 22px;
+  }
+
   .dashboard {
     padding: 20px 15px 42px;
   }
@@ -996,15 +1251,6 @@ ion-header ion-title {
 
   .metric-value {
     font-size: 1.45rem;
-  }
-
-  .intake-edit {
-    align-items: center;
-    gap: 6px;
-  }
-
-  .intake-edit ion-input {
-    min-width: 0;
   }
 
   .preferences-card ion-card-content {

@@ -1,3 +1,5 @@
+import type { Gender } from '../utils/healthProfile';
+
 export type ExerciseCategory =
   | 'walking'
   | 'jogging'
@@ -17,10 +19,12 @@ export interface Exercise {
   name: string;
   category: ExerciseCategory;
   difficulty: FitnessExperience;
+  trackingMode?: 'repetitions';
   met: number;
   description: string;
   tutorialSearch: string;
   icon: string;
+  homeFriendly?: boolean;
 }
 
 export interface ExercisePreferences {
@@ -38,6 +42,7 @@ export interface WorkoutLog {
   exerciseName: string;
   category: ExerciseCategory;
   durationMinutes: number;
+  repetitions?: number;
   estimatedCalories: number;
   workoutDate: string;
   completionStatus: 'completed';
@@ -45,6 +50,9 @@ export interface WorkoutLog {
 
 export interface ExerciseRecommendation extends Exercise {
   durationMinutes: number;
+  suggestedSets?: number;
+  suggestedRepsPerSet?: number;
+  targetRepetitions?: number;
   estimatedCalories: number;
 }
 
@@ -178,6 +186,77 @@ export const exerciseCatalog: Exercise[] = [
     icon: '🏋️',
   },
   {
+    id: 'wall-push-ups',
+    name: 'Wall Push-Ups',
+    category: 'strength',
+    difficulty: 'beginner',
+    trackingMode: 'repetitions',
+    met: 3.8,
+    description: 'A beginner-friendly push-up variation using a clear wall. Keep your body in a straight line, move at a comfortable range, and stop if you feel pain.',
+    tutorialSearch: 'wall push up beginner proper form',
+    icon: '💪',
+    homeFriendly: true,
+  },
+  {
+    id: 'knee-push-ups',
+    name: 'Knee Push-Ups',
+    category: 'strength',
+    difficulty: 'beginner',
+    trackingMode: 'repetitions',
+    met: 4,
+    description: 'A floor push-up variation with knees down. Keep your back steady and lower only as far as feels comfortable; use wall push-ups as an easier option.',
+    tutorialSearch: 'knee push up beginner proper form',
+    icon: '💪',
+    homeFriendly: true,
+  },
+  {
+    id: 'chair-squats',
+    name: 'Chair Squats',
+    category: 'strength',
+    difficulty: 'beginner',
+    trackingMode: 'repetitions',
+    met: 4.5,
+    description: 'Stand in front of a stable chair, sit back under control, then stand. Use a comfortable range and keep the chair from sliding.',
+    tutorialSearch: 'chair squat beginner proper form',
+    icon: '🪑',
+    homeFriendly: true,
+  },
+  {
+    id: 'glute-bridges',
+    name: 'Glute Bridges',
+    category: 'strength',
+    difficulty: 'beginner',
+    trackingMode: 'repetitions',
+    met: 3.8,
+    description: 'Lie on a clear floor space with knees bent, gently lift your hips, and lower with control. Avoid arching your lower back.',
+    tutorialSearch: 'glute bridge beginner proper form',
+    icon: '🧘',
+    homeFriendly: true,
+  },
+  {
+    id: 'bird-dog',
+    name: 'Bird-Dog',
+    category: 'strength',
+    difficulty: 'beginner',
+    trackingMode: 'repetitions',
+    met: 3.5,
+    description: 'From hands and knees on a comfortable surface, reach opposite arm and leg without twisting your back. Move slowly and use a smaller range if needed.',
+    tutorialSearch: 'bird dog exercise beginner proper form',
+    icon: '🐕',
+    homeFriendly: true,
+  },
+  {
+    id: 'marching-in-place',
+    name: 'Marching in Place',
+    category: 'cardio',
+    difficulty: 'beginner',
+    met: 3.5,
+    description: 'March at a steady, comfortable pace in a clear space at home. Keep the steps low-impact and hold a stable support if you need balance.',
+    tutorialSearch: 'low impact marching in place beginner workout',
+    icon: '🚶',
+    homeFriendly: true,
+  },
+  {
     id: 'low-impact-cardio',
     name: 'Low-Impact Cardio',
     category: 'cardio',
@@ -289,8 +368,8 @@ export function saveCompletedWorkout(
   durationMinutes: number,
   date = new Date(),
 ): WorkoutLog {
-  if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 240) {
-    throw new Error('Workout duration must be between 1 and 240 minutes.');
+  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0 || durationMinutes > 240) {
+    throw new Error('Workout duration must be greater than 0 and no more than 240 minutes.');
   }
   const preferences = readStorage().preferences;
   const workout: WorkoutLog = {
@@ -309,8 +388,73 @@ export function saveCompletedWorkout(
   return workout;
 }
 
+export function saveCompletedRepetitionWorkout(
+  recommendation: ExerciseRecommendation,
+  repetitions: number,
+  date = new Date(),
+  elapsedSeconds?: number,
+): WorkoutLog {
+  if (!recommendation.trackingMode || !Number.isInteger(repetitions) || repetitions < 1 || repetitions > 1000) {
+    throw new Error('Enter a whole-number repetition count from 1 to 1,000.');
+  }
+  if (elapsedSeconds !== undefined && (!Number.isFinite(elapsedSeconds) || elapsedSeconds < 1 || elapsedSeconds > 14400)) {
+    throw new Error('Workout duration must be between 1 second and 4 hours.');
+  }
+  const preferences = readStorage().preferences;
+  const repetitionsPerSet = recommendation.suggestedRepsPerSet ?? repetitions;
+  const estimatedDurationMinutes = (repetitions * 3) / 60
+    + Math.max(0, Math.ceil(repetitions / repetitionsPerSet) - 1);
+  const durationMinutes = elapsedSeconds === undefined ? estimatedDurationMinutes : elapsedSeconds / 60;
+  const workout: WorkoutLog = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    exerciseId: recommendation.id,
+    exerciseName: recommendation.name,
+    category: recommendation.category,
+    durationMinutes,
+    repetitions,
+    estimatedCalories: estimateRepetitionCalories(
+      recommendation.met,
+      repetitions,
+      repetitionsPerSet,
+      preferences.weightKg,
+      elapsedSeconds,
+    ),
+    workoutDate: date.toISOString(),
+    completionStatus: 'completed',
+  };
+  const data = readStorage();
+  data.workouts.push(workout);
+  writeStorage(data);
+  return workout;
+}
+
 export function estimateCalories(met: number, durationMinutes: number, weightKg: number): number {
   return Math.round(((met * 3.5 * weightKg) / 200) * durationMinutes);
+}
+
+export function estimateRepetitionCalories(
+  met: number,
+  repetitions: number,
+  repetitionsPerSet: number,
+  weightKg: number,
+  elapsedSeconds?: number,
+): number {
+  if (
+    !Number.isFinite(repetitions)
+    || repetitions <= 0
+    || !Number.isFinite(repetitionsPerSet)
+    || repetitionsPerSet <= 0
+  ) return 0;
+  const estimatedActiveMinutes = (repetitions * 3) / 60;
+  const elapsedMinutes = elapsedSeconds === undefined ? null : Math.max(0, elapsedSeconds / 60);
+  const activeMinutes = elapsedMinutes === null
+    ? estimatedActiveMinutes
+    : Math.min(estimatedActiveMinutes, elapsedMinutes);
+  const restMinutes = elapsedMinutes === null
+    ? Math.max(0, Math.ceil(repetitions / repetitionsPerSet) - 1)
+    : Math.max(0, elapsedMinutes - activeMinutes);
+  const caloriesPerMinute = (3.5 * weightKg) / 200;
+  return Math.round((met * activeMinutes + 1.5 * restMinutes) * caloriesPerMinute);
 }
 
 const goalCategories: Record<FitnessGoal, ExerciseCategory[]> = {
@@ -324,6 +468,8 @@ const goalCategories: Record<FitnessGoal, ExerciseCategory[]> = {
 export function getRecommendations(
   preferences: ExercisePreferences,
   history: WorkoutLog[],
+  gender: Gender = '',
+  fitnessGoal = '',
 ): ExerciseRecommendation[] {
   const experienceDuration: Record<FitnessExperience, number> = {
     beginner: 20,
@@ -341,6 +487,7 @@ export function getRecommendations(
     Math.max(10, experienceDuration[preferences.experience] + activityAdjustment[preferences.activityLevel]),
   );
   const targetCategories = goalCategories[preferences.goal];
+  const profileGoalCategories = getProfileGoalCategories(fitnessGoal);
   const today = todayKey();
   const completedToday = new Set(
     history
@@ -353,13 +500,52 @@ export function getRecommendations(
       exercise,
       score:
         (targetCategories.includes(exercise.category) ? 4 : 0)
+        + (profileGoalCategories.includes(exercise.category) ? 8 : 0)
         + (preferences.preferredTypes.length === 0 || preferences.preferredTypes.includes(exercise.category) ? 3 : 0)
         + (exercise.difficulty === preferences.experience ? 1 : 0)
+        + (exercise.homeFriendly ? 2 : 0)
         - (completedToday.has(exercise.id) ? 6 : 0),
     }))
     .sort((a, b) => b.score - a.score || a.exercise.name.localeCompare(b.exercise.name))
-    .slice(0, 4)
+    .slice(0, 8)
     .map(({ exercise }) => {
+      if (exercise.trackingMode === 'repetitions') {
+        const prescription: Record<FitnessExperience, Record<Gender, { sets: number; repsPerSet: number }>> = {
+          beginner: {
+            '': { sets: 2, repsPerSet: 8 },
+            female: { sets: 2, repsPerSet: 8 },
+            male: { sets: 2, repsPerSet: 10 },
+          },
+          intermediate: {
+            '': { sets: 3, repsPerSet: 10 },
+            female: { sets: 3, repsPerSet: 10 },
+            male: { sets: 3, repsPerSet: 12 },
+          },
+          advanced: {
+            '': { sets: 3, repsPerSet: 12 },
+            female: { sets: 3, repsPerSet: 12 },
+            male: { sets: 3, repsPerSet: 15 },
+          },
+        };
+        const { sets, repsPerSet } = prescription[preferences.experience][gender];
+        const repetitions = sets * repsPerSet;
+        const activeMinutes = (repetitions * 3) / 60;
+        const restMinutes = Math.max(0, sets - 1);
+        const durationMinutes = activeMinutes + restMinutes;
+        return {
+          ...exercise,
+          durationMinutes,
+          suggestedSets: sets,
+          suggestedRepsPerSet: repsPerSet,
+          targetRepetitions: repetitions,
+          estimatedCalories: estimateRepetitionCalories(
+            exercise.met,
+            repetitions,
+            repsPerSet,
+            preferences.weightKg,
+          ),
+        };
+      }
       const levelLimit = preferences.experience === 'beginner' && exercise.difficulty !== 'beginner'
         ? Math.min(plannedDuration, 20)
         : plannedDuration;
@@ -370,6 +556,22 @@ export function getRecommendations(
         estimatedCalories: estimateCalories(exercise.met, durationMinutes, preferences.weightKg),
       };
     });
+}
+
+function getProfileGoalCategories(fitnessGoal: string): ExerciseCategory[] {
+  const goal = fitnessGoal.toLocaleLowerCase().replace(/[-_]/g, ' ');
+  const categories = new Set<ExerciseCategory>();
+  const add = (...values: ExerciseCategory[]) => values.forEach((value) => categories.add(value));
+
+  if (/\b(strength|strong|muscle|toning|tone)\b/.test(goal)) add('strength', 'pilates');
+  if (/\b(weight|lose weight|fat loss|weight loss|weight management)\b/.test(goal)) {
+    add('walking', 'jogging', 'cycling', 'cardio');
+  }
+  if (/\b(cardio|endurance|stamina|fitness)\b/.test(goal)) add('walking', 'jogging', 'cycling', 'cardio');
+  if (/\b(flexibility|flexible|mobility|stretch)\b/.test(goal)) add('yoga', 'pilates', 'stretching');
+  if (/\b(stress|relax|relaxation|calm)\b/.test(goal)) add('yoga', 'stretching', 'walking');
+
+  return [...categories];
 }
 
 export function getYouTubeSearchUrl(search: string): string {

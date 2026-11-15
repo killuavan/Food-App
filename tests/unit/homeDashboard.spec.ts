@@ -55,6 +55,7 @@ describe('HomeDashboardPage', () => {
 
     expect(wrapper.text()).toContain('Good');
     expect(wrapper.text()).toContain('Food inventory');
+    expect(wrapper.text()).toContain('Exercise');
     expect(wrapper.text()).toContain('Scan barcode');
     expect(wrapper.text()).toContain('Nutrition analytics');
     expect(wrapper.text()).toContain('Grocery list');
@@ -62,6 +63,7 @@ describe('HomeDashboardPage', () => {
     expect(wrapper.text()).toContain('Quick actions');
     expect(wrapper.text()).toContain('Nutrition summary');
     expect(wrapper.findAll('a').map((link) => link.attributes('href'))).toContain('/inventory');
+    expect(wrapper.findAll('a').map((link) => link.attributes('href'))).toContain('/exercise');
     expect(wrapper.findAll('a').map((link) => link.attributes('href'))).toContain('/grocery-list');
     wrapper.unmount();
   });

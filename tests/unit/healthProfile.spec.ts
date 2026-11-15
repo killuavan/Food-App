@@ -52,6 +52,8 @@ describe('health profile and BMI rules', () => {
 
   test('marks a profile complete only when age, height, weight, and activity are present', () => {
     const draft = emptyHealthProfileDraft();
+    expect(draft.gender).toBe('');
+    expect(validateHealthProfileDraft({ ...draft, gender: 'female' })).toEqual({});
     expect(isHealthProfileComplete(draft)).toBe(false);
     expect(isHealthProfileComplete({
       ...draft,

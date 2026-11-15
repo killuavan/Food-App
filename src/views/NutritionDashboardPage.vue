@@ -480,8 +480,19 @@ function isValidDate(value: string): boolean {
 .analytics-header .eyebrow { color: #bcebd0; }
 .date-button { --border-radius: 12px; --border-color: rgb(255 255 255 / 55%); --color: #fff; --background: rgb(255 255 255 / 10%); min-height: 46px; }
 .analytics-tabs { margin: 14px 0 20px; padding: 5px; border: 1px solid var(--app-border); border-radius: 15px; background: var(--app-card); }
-.analytics-tabs ion-segment-button { min-height: 54px; --border-radius: 11px; --indicator-color: var(--app-green); --color-checked: #fff; text-transform: none; }
-.analytics-tabs ion-icon { margin-bottom: 2px; font-size: 1.15rem; }
+.analytics-tabs ion-segment-button {
+  min-height: 62px;
+  --border-radius: 11px;
+  --background: transparent;
+  --background-checked: #e8f5e9;
+  --indicator-color: transparent;
+  --color: #35483d;
+  --color-checked: #174b37;
+  font-size: .88rem;
+  font-weight: 700;
+  text-transform: none;
+}
+.analytics-tabs ion-icon { margin-bottom: 3px; font-size: 1.25rem; }
 .tab-content { display: grid; gap: 15px; }
 .summary-heading, .section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .summary-heading h2, .section-title h2 { margin: 4px 0 0; color: var(--app-text); font-size: 1.16rem; }

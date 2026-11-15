@@ -8,14 +8,16 @@
           <div>
             <h1>Food inventory</h1>
           </div>
-          <ion-button v-if="user" class="add-button" @click="openCreate">
-            <ion-icon slot="start" :icon="addOutline" />
-            Add food
-          </ion-button>
-          <ion-button v-if="user" fill="outline" @click="barcodeModalOpen = true">
-            <ion-icon slot="start" :icon="barcodeOutline" />
-            Scan barcode
-          </ion-button>
+          <div v-if="user" class="inventory-actions">
+            <ion-button class="inventory-action-button" @click="openCreate">
+              <ion-icon slot="start" :icon="addOutline" />
+              Add food
+            </ion-button>
+            <ion-button class="inventory-action-button" @click="barcodeModalOpen = true">
+              <ion-icon slot="start" :icon="barcodeOutline" />
+              Scan barcode
+            </ion-button>
+          </div>
         </header>
 
         <ion-progress-bar v-if="loading" type="indeterminate" aria-label="Loading food inventory" />
@@ -147,7 +149,8 @@
                     <div class="food-detail quantity-detail">
                       <span>Quantity</span>
                       <strong>{{ formatQuantity(item.quantity) }} {{ item.unit }}</strong>
-                      <small>Low at {{ formatQuantity(item.lowStockThreshold) }} {{ item.unit }}</small>
+                      <small>{{ item.weightState ? `${item.weightState} · ` : '' }}Low at {{ formatQuantity(item.lowStockThreshold) }} {{ item.unit }}</small>
+                      <small v-if="item.pieceWeightGrams">{{ formatQuantity(item.pieceWeightGrams) }} g per piece</small>
                     </div>
                     <div class="food-detail">
                       <span>Expiration date</span>
@@ -247,7 +250,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import type { AuthenticatedUser as User } from '../services/authService';
 import { App as CapacitorApp } from '@capacitor/app';
 import AppNavigation from '../components/AppNavigation.vue';
@@ -313,6 +316,7 @@ import type { ScannedFoodProduct } from '../services/openFoodFactsService';
 
 const user = ref<User | null>(null);
 const router = useRouter();
+const route = useRoute();
 const inventory = ref<FoodItem[]>([]);
 const loading = ref(true);
 const saving = ref(false);
@@ -397,6 +401,14 @@ async function loadInventory(userId: string): Promise<void> {
     expirationWarningDays.value = getExpirationWarningDays(userId);
     inventory.value = await listFoodItems(userId);
     errorMessage.value = '';
+    const editItemId = typeof route.query.editItem === 'string' ? route.query.editItem : '';
+    const itemToEdit = inventory.value.find((item) => item.id === editItemId);
+    if (itemToEdit) {
+      openEdit(itemToEdit);
+      const query = { ...route.query };
+      delete query.editItem;
+      await router.replace({ query });
+    }
     openPendingScannedProduct(userId);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
@@ -497,6 +509,7 @@ function createScannedDraft(product?: ScannedFoodProduct, barcode = ''): FoodIte
     category: product?.category ?? 'Others',
     quantity: product?.packageAmount ?? 1,
     unit: product?.packageUnit ?? 'pcs',
+    pieceWeightGrams: null,
     lowStockThreshold: 1,
     purchaseDate: '',
     expirationDate: '',
@@ -504,7 +517,14 @@ function createScannedDraft(product?: ScannedFoodProduct, barcode = ''): FoodIte
     notes: [
       product?.packageDescription ? `Package: ${product.packageDescription}` : '',
       product?.servingSize ? `Serving size: ${product.servingSize}` : '',
-    ].filter(Boolean).join('\n').slice(0, 500),
+      product?.categories ? `Product categories: ${product.categories}` : '',
+      product?.labels ? `Labels: ${product.labels}` : '',
+      product?.allergens ? `Allergens: ${product.allergens}` : '',
+      product?.traces ? `May contain traces: ${product.traces}` : '',
+      product?.countries ? `Countries: ${product.countries}` : '',
+      product?.packaging ? `Packaging: ${product.packaging}` : '',
+      product?.ingredients ? `Ingredients: ${product.ingredients}` : '',
+    ].filter(Boolean).join('\n').slice(0, 5000),
     nutritionProfile: product?.nutritionProfile ?? null,
     barcode: product?.barcode ?? barcode,
     brand: product?.brand ?? '',
@@ -738,7 +758,7 @@ ion-header ion-toolbar {
 .inventory-hero {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 18px;
   margin-bottom: 22px;
   padding: 28px 32px;
@@ -773,13 +793,24 @@ ion-header ion-toolbar {
   letter-spacing: 0.11em;
 }
 
-.add-button {
-  flex-shrink: 0;
+.inventory-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.inventory-action-button {
+  min-height: 44px;
+  margin: 0;
   --background: #fff;
   --background-hover: #edf8f0;
+  --background-activated: #dcefe1;
   --color: #1f674f;
   --border-radius: 12px;
   --box-shadow: none;
+  font-weight: 650;
+  text-transform: none;
 }
 
 .summary-grid {
@@ -1108,6 +1139,18 @@ ion-header ion-toolbar {
     flex-direction: column;
     padding: 22px;
     border-radius: 18px;
+  }
+
+  .inventory-actions {
+    width: 100%;
+    margin-left: 0;
+    gap: 8px;
+  }
+
+  .inventory-action-button {
+    flex: 1 1 0;
+    min-width: 0;
+    font-size: 0.78rem;
   }
 
   .summary-grid {

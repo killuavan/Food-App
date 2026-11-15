@@ -327,6 +327,107 @@ export async function createFoodConsumption(userId: string, draft: FoodConsumpti
   }
 }
 
+export async function createFoodConsumptions(userId: string, drafts: FoodConsumptionDraft[]): Promise<string[]> {
+  if (!drafts.length) throw new Error('Select at least one food to log.');
+  drafts.forEach(validateRecord);
+  if (drafts.some((draft) => draft.inventoryItemId.startsWith('off:'))) {
+    throw new Error('Meals from your weekly plan must use foods linked to your inventory.');
+  }
+  assertAuthenticatedUser(userId);
+
+  try {
+    const services = getSupabaseServices();
+    const logs = drafts.map((draft) => ({
+      draft,
+      logReference: doc(getUserCollection(userId, 'consumptionLogs')),
+    }));
+    const itemReferences = new Map(
+      [...new Set(drafts.map((draft) => draft.inventoryItemId))]
+        .map((itemId) => [itemId, doc(getUserCollection(userId, 'inventoryItems'), itemId)]),
+    );
+    await runTransaction(services.db, async (transaction) => {
+      const itemSnapshots = new Map<string, DocumentSnapshot<DocumentData>>();
+      for (const [itemId, reference] of itemReferences) {
+        itemSnapshots.set(itemId, await transaction.get(reference));
+      }
+
+      const quantities = new Map<string, number>();
+      const itemData = new Map<string, DocumentData>();
+      for (const { draft } of logs) {
+        const snapshot = itemSnapshots.get(draft.inventoryItemId);
+        if (!snapshot?.exists()) throw new Error(`Inventory item "${draft.foodName}" was not found. Refresh inventory and try again.`);
+        const data = itemData.get(draft.inventoryItemId) ?? snapshot.data();
+        ensureEligibleItem(data, draft.consumptionDate);
+        const consumed = quantityInInventoryUnit(draft.quantityConsumed, draft.measurementUnit, data.unit as MeasurementUnit);
+        quantities.set(draft.inventoryItemId, (quantities.get(draft.inventoryItemId) ?? 0) + consumed);
+        itemData.set(draft.inventoryItemId, data);
+      }
+
+      const quantityAfter = new Map<string, number>();
+      for (const [itemId, quantity] of quantities) {
+        const data = itemData.get(itemId)!;
+        quantityAfter.set(itemId, calculateInventoryAfterMovement(
+          data.quantity as number,
+          quantity,
+          0,
+          data.unit as MeasurementUnit,
+        ));
+      }
+
+      for (const [itemId, reference] of itemReferences) {
+        const data = itemData.get(itemId);
+        if (!data) continue;
+        transaction.update(reference, {
+          quantity: quantityAfter.get(itemId),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      const consumedSoFar = new Map<string, number>();
+      logs.forEach(({ draft, logReference }) => {
+        const data = itemData.get(draft.inventoryItemId)!;
+        const itemUnit = data.unit as MeasurementUnit;
+        const consumedQuantity = quantityInInventoryUnit(draft.quantityConsumed, draft.measurementUnit, itemUnit);
+        const before = data.quantity as number;
+        const remainingBefore = Number((before - (consumedSoFar.get(draft.inventoryItemId) ?? 0)).toFixed(9));
+        const remainingAfter = Number((remainingBefore - consumedQuantity).toFixed(9));
+        consumedSoFar.set(draft.inventoryItemId, (consumedSoFar.get(draft.inventoryItemId) ?? 0) + consumedQuantity);
+        const marker: DeductionMarker = {
+          inventoryItemId: draft.inventoryItemId,
+          quantity: consumedQuantity,
+          unit: itemUnit,
+          revision: 1,
+        };
+        transaction.set(logReference, {
+          ...draft,
+          foodName: String(data.foodName),
+          foodCategory: data.category,
+          inventoryUnit: itemUnit,
+          nutritionSnapshot: data.nutritionProfile ?? null,
+          inventoryDeduction: marker,
+          notes: draft.notes.trim(),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        makeMovement(transaction, userId, `consumption-${logReference.id}`, {
+          inventoryItemId: draft.inventoryItemId,
+          consumptionLogId: logReference.id,
+          movementType: 'CONSUMPTION',
+          quantity: consumedQuantity,
+          unit: itemUnit,
+          quantityBefore: remainingBefore,
+          quantityAfter: remainingAfter,
+        });
+      });
+    });
+
+    notifyUserDataChanged(userId);
+    return logs.map(({ logReference }) => logReference.id);
+  } catch (error) {
+    throw describeFirestoreError('save the meal and update inventory', error);
+  }
+}
+
 export async function updateFoodConsumption(
   userId: string,
   id: string,

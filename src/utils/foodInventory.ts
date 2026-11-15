@@ -14,8 +14,10 @@ export const foodCategories = [
 ] as const;
 
 export const measurementUnits = ['g', 'kg', 'mL', 'L', 'pcs', 'packs'] as const;
+export const foodWeightStates = ['raw', 'cooked', 'dry', 'as-sold'] as const;
 export type FoodCategory = (typeof foodCategories)[number];
 export type MeasurementUnit = (typeof measurementUnits)[number];
+export type FoodWeightState = (typeof foodWeightStates)[number];
 export type StockStatus = 'good' | 'low' | 'out';
 export type InventorySort = 'name' | 'expirationDate' | 'quantity';
 
@@ -25,6 +27,8 @@ export interface FoodItem {
   category: FoodCategory;
   quantity: number;
   unit: MeasurementUnit;
+  weightState?: FoodWeightState | null;
+  pieceWeightGrams?: number | null;
   lowStockThreshold: number;
   purchaseDate: string;
   expirationDate: string;
@@ -45,6 +49,7 @@ export interface FoodItemFormErrors {
   category?: string;
   quantity?: string;
   unit?: string;
+  pieceWeightGrams?: string;
   lowStockThreshold?: string;
   expirationDate?: string;
   purchaseDate?: string;
@@ -56,6 +61,8 @@ export function emptyFoodItemDraft(): FoodItemDraft {
     category: 'Others',
     quantity: 0,
     unit: 'pcs',
+    weightState: null,
+    pieceWeightGrams: null,
     lowStockThreshold: 1,
     purchaseDate: '',
     expirationDate: '',
@@ -76,6 +83,14 @@ export function validateFoodItemDraft(draft: FoodItemDraft): FoodItemFormErrors 
     errors.quantity = 'Quantity must be a number greater than or equal to zero.';
   }
   if (!measurementUnits.includes(draft.unit)) errors.unit = 'Choose a valid measurement unit.';
+  if (
+    draft.unit === 'pcs'
+    && draft.pieceWeightGrams !== null
+    && draft.pieceWeightGrams !== undefined
+    && (!Number.isFinite(draft.pieceWeightGrams) || draft.pieceWeightGrams <= 0)
+  ) {
+    errors.pieceWeightGrams = 'Enter a piece weight greater than zero, or leave it blank.';
+  }
   if (!Number.isFinite(draft.lowStockThreshold) || draft.lowStockThreshold < 0) {
     errors.lowStockThreshold = 'Low-stock threshold must be zero or greater.';
   }
