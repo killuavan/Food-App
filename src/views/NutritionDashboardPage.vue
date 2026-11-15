@@ -64,15 +64,24 @@
                 <ion-card-content>
                   <span class="card-label">Calories with available data</span>
                   <strong>{{ formatCalories(calories.caloriesKcal) }}</strong>
-                  <span>{{ calories.entryCount }} logged {{ calories.entryCount === 1 ? 'food' : 'foods' }}</span>
+                  <span v-if="calories.entryCount">
+                    {{ calories.entriesWithCalories }} of {{ calories.entryCount }} logged {{ calories.entryCount === 1 ? 'food' : 'foods' }} with kcal
+                  </span>
+                  <span v-else>No food entries for this date</span>
                 </ion-card-content>
               </ion-card>
               <div class="meal-grid">
                 <ion-card v-for="meal in calorieMeals" :key="meal.mealCategory" class="meal-card">
                   <ion-card-content>
                     <span>{{ meal.mealCategory }}</span>
-                    <strong>{{ formatCalories(meal.caloriesKcal) }}</strong>
-                    <small>{{ meal.entryCount }} {{ meal.entryCount === 1 ? 'entry' : 'entries' }}</small>
+                    <strong>
+                      {{ !meal.entryCount ? '—' : meal.caloriesKcal === null ? 'No kcal data' : formatCalories(meal.caloriesKcal) }}
+                    </strong>
+                    <small v-if="meal.entryCount">
+                      {{ meal.entriesWithCalories }} of {{ meal.entryCount }} {{ meal.entryCount === 1 ? 'entry' : 'entries' }} with kcal
+                      <span v-if="meal.entriesMissingCalories"> · partial</span>
+                    </small>
+                    <small v-else>No entries</small>
                   </ion-card-content>
                 </ion-card>
               </div>

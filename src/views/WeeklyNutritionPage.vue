@@ -489,6 +489,8 @@ function logMealRoute(meal: MealRecommendation): string {
       quantityConsumed: ingredient.amountToLog,
       measurementUnit: ingredient.unitToLog,
       weightState: ingredient.inventoryWeightState ?? ingredient.weightState ?? null,
+      nutritionAmount: ingredient.nutritionAmountGrams,
+      nutritionUnit: ingredient.nutritionAmountGrams === null ? null : 'g',
     })),
   };
   return `/consumption?weeklyMeal=${encodeURIComponent(JSON.stringify(weeklyMeal))}`;

@@ -6,6 +6,7 @@ export type MealCategory = (typeof mealCategories)[number];
 
 export const consumptionUnits = ['g', 'kg', 'mL', 'L', 'pcs', 'packs', 'servings'] as const;
 export type ConsumptionUnit = (typeof consumptionUnits)[number];
+export type NutritionAmountUnit = 'g' | 'mL';
 
 export interface FoodConsumption {
   id: string;
@@ -20,6 +21,8 @@ export interface FoodConsumption {
   consumptionTime: string;
   notes: string;
   nutritionSnapshot?: NutritionProfile | null;
+  nutritionAmount?: number | null;
+  nutritionUnit?: NutritionAmountUnit | null;
   inventoryDeduction?: {
     inventoryItemId: string;
     quantity: number;

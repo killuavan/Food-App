@@ -44,6 +44,7 @@ export interface RecommendedIngredient extends RecipeIngredient {
   inventoryPackageWeightGrams?: number | null;
   inventoryPieceWeightGrams?: number | null;
   inventoryWeightState?: NutritionWeightState;
+  nutritionAmountGrams: number | null;
   amountToLog: number;
   unitToLog: 'g' | 'pcs' | 'packs';
   availableQuantity: number | null;
@@ -576,6 +577,7 @@ function ingredientsFor(recipe: MealRecipe, inventory: FoodItem[]): RecommendedI
       inventoryWeightState: selectedIsPreparedSource
         ? ingredient.preparedFrom?.weightState
         : ingredient.weightState,
+      nutritionAmountGrams: scaled ? nutritionAmountGrams : null,
       amountToLog: selectedIsPackage
         ? (ingredient.amountPacks ?? 1)
         : selectedIsPiece

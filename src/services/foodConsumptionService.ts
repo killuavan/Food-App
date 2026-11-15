@@ -18,7 +18,10 @@ import {
   validateFoodConsumptionDraft,
   type FoodConsumption,
   type FoodConsumptionDraft,
+  type NutritionAmountUnit,
 } from '../utils/foodConsumption';
+import { getNutritionBasisAmount } from '../utils/dailyNutrition';
+import type { NutritionProfile } from '../utils/usdaNutrition';
 import { foodCategories, measurementUnits, type MeasurementUnit } from '../utils/foodInventory';
 import { calculateInventoryAfterMovement, quantityInInventoryUnit } from '../utils/inventoryDeduction';
 
@@ -113,6 +116,12 @@ function toFoodConsumption(id: string, data: Record<string, unknown>): FoodConsu
   const createdAt = toIso(data.createdAt);
   const updatedAt = toIso(data.updatedAt);
   const marker = data.inventoryDeduction as DeductionMarker | null | undefined;
+  const nutritionAmount = typeof data.nutritionAmount === 'number' && Number.isFinite(data.nutritionAmount)
+    ? data.nutritionAmount
+    : null;
+  const nutritionUnit = data.nutritionUnit === 'g' || data.nutritionUnit === 'mL'
+    ? data.nutritionUnit
+    : null;
   return {
     id,
     inventoryItemId: String(data.inventoryItemId ?? ''),
@@ -126,10 +135,37 @@ function toFoodConsumption(id: string, data: Record<string, unknown>): FoodConsu
     consumptionTime: String(data.consumptionTime ?? ''),
     notes: String(data.notes ?? ''),
     nutritionSnapshot: (data.nutritionSnapshot as FoodConsumption['nutritionSnapshot']) ?? null,
+    nutritionAmount,
+    nutritionUnit,
     inventoryDeduction: marker ?? null,
     createdAt,
     updatedAt,
   };
+}
+
+function nutritionAmountFields(
+  draft: FoodConsumptionDraft,
+  profile: NutritionProfile | null,
+  pieceWeightGrams: number | null,
+): { nutritionAmount: number | null; nutritionUnit: NutritionAmountUnit | null } {
+  if (!profile) return { nutritionAmount: null, nutritionUnit: null };
+  if (
+    Number.isFinite(draft.nutritionAmount)
+    && (draft.nutritionAmount ?? 0) > 0
+    && (draft.nutritionUnit === 'g' ? Boolean(profile.basisGrams)
+      : draft.nutritionUnit === 'mL' ? Boolean(profile.basisMilliliters) : false)
+  ) {
+    return { nutritionAmount: draft.nutritionAmount ?? null, nutritionUnit: draft.nutritionUnit ?? null };
+  }
+  const amount = getNutritionBasisAmount(
+    draft.quantityConsumed,
+    draft.measurementUnit,
+    profile,
+    pieceWeightGrams,
+  );
+  return amount
+    ? { nutritionAmount: amount.amount, nutritionUnit: amount.unit }
+    : { nutritionAmount: null, nutritionUnit: null };
 }
 
 export async function listFoodConsumptions(userId: string): Promise<FoodConsumption[]> {
@@ -270,8 +306,10 @@ export async function createFoodConsumption(userId: string, draft: FoodConsumpti
     const services = getSupabaseServices();
 
     if (draft.inventoryItemId.startsWith('off:')) {
+      const nutritionFields = nutritionAmountFields(draft, draft.nutritionSnapshot ?? null, null);
       const created = await addDoc(getUserCollection(userId, 'consumptionLogs'), {
         ...draft,
+        ...nutritionFields,
         foodName: draft.foodName.trim(),
         notes: draft.notes.trim(),
         createdAt: serverTimestamp(),
@@ -297,6 +335,11 @@ export async function createFoodConsumption(userId: string, draft: FoodConsumpti
         unit: itemUnit,
         revision: 1,
       };
+      const nutritionFields = nutritionAmountFields(
+        draft,
+        (inventoryData.nutritionProfile as NutritionProfile | null | undefined) ?? null,
+        typeof inventoryData.pieceWeightGrams === 'number' ? inventoryData.pieceWeightGrams : null,
+      );
 
       transaction.update(inventoryReference, { quantity: quantityAfter, updatedAt: serverTimestamp() });
       transaction.set(logReference, {
@@ -305,6 +348,7 @@ export async function createFoodConsumption(userId: string, draft: FoodConsumpti
         foodCategory: inventoryData.category,
         inventoryUnit: itemUnit,
         nutritionSnapshot: inventoryData.nutritionProfile ?? null,
+        ...nutritionFields,
         inventoryDeduction: marker,
         notes: draft.notes.trim(),
         createdAt: serverTimestamp(),
@@ -398,12 +442,18 @@ export async function createFoodConsumptions(userId: string, drafts: FoodConsump
           unit: itemUnit,
           revision: 1,
         };
+        const nutritionFields = nutritionAmountFields(
+          draft,
+          (data.nutritionProfile as NutritionProfile | null | undefined) ?? null,
+          typeof data.pieceWeightGrams === 'number' ? data.pieceWeightGrams : null,
+        );
         transaction.set(logReference, {
           ...draft,
           foodName: String(data.foodName),
           foodCategory: data.category,
           inventoryUnit: itemUnit,
           nutritionSnapshot: data.nutritionProfile ?? null,
+          ...nutritionFields,
           inventoryDeduction: marker,
           notes: draft.notes.trim(),
           createdAt: serverTimestamp(),
@@ -560,16 +610,25 @@ export async function updateFoodConsumption(
       }
 
       const savedItemData = targetData ?? null;
+      const savedNutritionSnapshot = savedItemData
+        ? oldData.inventoryItemId === draft.inventoryItemId
+          ? (oldData.nutritionSnapshot as NutritionProfile | null | undefined)
+            ?? (savedItemData.nutritionProfile as NutritionProfile | null | undefined)
+            ?? null
+          : (savedItemData.nutritionProfile as NutritionProfile | null | undefined) ?? null
+        : draft.nutritionSnapshot ?? null;
+      const nutritionFields = nutritionAmountFields(
+        draft,
+        savedNutritionSnapshot,
+        typeof savedItemData?.pieceWeightGrams === 'number' ? savedItemData.pieceWeightGrams : null,
+      );
       transaction.update(logReference, {
         ...draft,
         foodName: savedItemData ? String(savedItemData.foodName) : draft.foodName.trim(),
         foodCategory: savedItemData?.category ?? draft.foodCategory,
         inventoryUnit: targetUnit ?? draft.inventoryUnit,
-        nutritionSnapshot: savedItemData
-          ? oldData.inventoryItemId === draft.inventoryItemId
-            ? oldData.nutritionSnapshot ?? null
-            : savedItemData.nutritionProfile ?? null
-          : draft.nutritionSnapshot ?? null,
+        nutritionSnapshot: savedNutritionSnapshot,
+        ...nutritionFields,
         inventoryDeduction: nextMarker,
         notes: draft.notes.trim(),
         updatedAt: serverTimestamp(),

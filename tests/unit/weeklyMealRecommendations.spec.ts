@@ -353,11 +353,23 @@ describe('weekly meal recommendation rules', () => {
       consumption: noConsumption,
     });
 
-    expect(plan.meals.find((meal) => meal.recipeId === 'egg-banana-breakfast')?.ingredients)
-      .toEqual(expect.arrayContaining([
-        expect.objectContaining({ foodName: 'Egg', amountToLog: 1, unitToLog: 'pcs' }),
-        expect.objectContaining({ foodName: 'Banana', amountToLog: 1, unitToLog: 'pcs' }),
-      ]));
+    const ingredients = plan.meals.find((meal) => meal.recipeId === 'egg-banana-breakfast')?.ingredients;
+    expect(ingredients).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        foodName: 'Egg',
+        amountToLog: 1,
+        unitToLog: 'pcs',
+        nutritionAmountGrams: 50,
+        nutrients: expect.objectContaining({ '208': expect.objectContaining({ amount: 44.5 }) }),
+      }),
+      expect.objectContaining({
+        foodName: 'Banana',
+        amountToLog: 1,
+        unitToLog: 'pcs',
+        nutritionAmountGrams: 118,
+        nutrients: expect.objectContaining({ '208': expect.objectContaining({ amount: 105.02 }) }),
+      }),
+    ]));
   });
 
   test('recommends canned Century Tuna by pack with cooked rice without guessing can weight', () => {

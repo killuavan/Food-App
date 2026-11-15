@@ -1,4 +1,5 @@
 import type { FoodConsumption, MealCategory } from './foodConsumption';
+import { getNutritionBasisForRecord } from './dailyNutrition';
 import type { NutritionProfile, NutritionValue } from './usdaNutrition';
 
 export type MicronutrientName =
@@ -94,29 +95,11 @@ export const micronutrientDefinitions: readonly MicronutrientDefinition[] = [
   { id: 'fiber', label: 'Dietary fiber', group: 'fiber', unit: 'g', nutrientIds: ['291'] },
 ];
 
-function servingBasis(profile: NutritionProfile, servings: number): { amount: number; unit: 'g' | 'mL' } | null {
-  if (!Number.isFinite(servings) || servings <= 0 || !Number.isFinite(profile.servingSize) || !profile.servingSize) {
-    return null;
-  }
-  const unit = profile.servingSizeUnit.trim().toLocaleLowerCase();
-  if (['g', 'gr', 'gram', 'grams'].includes(unit)) return { amount: profile.servingSize * servings, unit: 'g' };
-  if (['ml', 'milliliter', 'milliliters', 'millilitre', 'millilitres'].includes(unit)) {
-    return { amount: profile.servingSize * servings, unit: 'mL' };
-  }
-  return null;
-}
-
 function consumedBasis(record: FoodConsumption, profile: NutritionProfile): { amount: number; unit: 'g' | 'mL' } | null {
-  if (!Number.isFinite(record.quantityConsumed) || record.quantityConsumed <= 0) return null;
-  if (record.measurementUnit === 'g' && profile.basisGrams) return { amount: record.quantityConsumed, unit: 'g' };
-  if (record.measurementUnit === 'kg' && profile.basisGrams) return { amount: record.quantityConsumed * 1000, unit: 'g' };
-  if (record.measurementUnit === 'mL' && profile.basisMilliliters) return { amount: record.quantityConsumed, unit: 'mL' };
-  if (record.measurementUnit === 'L' && profile.basisMilliliters) return { amount: record.quantityConsumed * 1000, unit: 'mL' };
-  if (record.measurementUnit !== 'servings') return null;
-  const portion = servingBasis(profile, record.quantityConsumed);
-  if (!portion) return null;
-  if (portion.unit === 'g' && profile.basisGrams) return portion;
-  if (portion.unit === 'mL' && profile.basisMilliliters) return portion;
+  const basis = getNutritionBasisForRecord(record);
+  if (!basis) return null;
+  if (basis.unit === 'g' && profile.basisGrams) return basis;
+  if (basis.unit === 'mL' && profile.basisMilliliters) return basis;
   return null;
 }
 

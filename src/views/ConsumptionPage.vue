@@ -488,6 +488,7 @@ import {
   type MealCategory,
 } from '../utils/foodConsumption';
 import { getStockStatus, type FoodItem, type FoodCategory } from '../utils/foodInventory';
+import { getNutritionBasisAmount, getNutritionBasisForRecord } from '../utils/dailyNutrition';
 import { scaleNutritionForGrams, scaleNutritionForMilliliters } from '../utils/usdaNutrition';
 import { quantityInInventoryUnit } from '../utils/inventoryDeduction';
 import BarcodeProductModal from '../components/BarcodeProductModal.vue';
@@ -591,21 +592,28 @@ const availableComparison = computed(() => {
   }
 });
 const nutritionGrams = computed(() => {
-  if (draft.value.measurementUnit === 'g' || draft.value.measurementUnit === 'kg') {
-    const grams = convertCompatibleQuantity(draft.value.quantityConsumed, draft.value.measurementUnit, 'g');
-    return grams !== null && grams > 0 ? grams : null;
-  }
-  if (selectedPortionGramWeight.value && draft.value.quantityConsumed > 0) {
-    return draft.value.quantityConsumed * selectedPortionGramWeight.value;
-  }
-  return null;
+  const profile = draft.value.nutritionSnapshot;
+  if (!profile) return null;
+  const amount = getNutritionBasisAmount(
+    draft.value.quantityConsumed,
+    draft.value.measurementUnit,
+    profile,
+    selectedInventoryItem.value?.pieceWeightGrams ?? null,
+    selectedPortionGramWeight.value,
+  );
+  return amount?.unit === 'g' ? amount.amount : null;
 });
 const nutritionMilliliters = computed(() => {
-  if (draft.value.measurementUnit === 'mL' || draft.value.measurementUnit === 'L') {
-    const milliliters = convertCompatibleQuantity(draft.value.quantityConsumed, draft.value.measurementUnit, 'mL');
-    return milliliters !== null && milliliters > 0 ? milliliters : null;
-  }
-  return null;
+  const profile = draft.value.nutritionSnapshot;
+  if (!profile) return null;
+  const amount = getNutritionBasisAmount(
+    draft.value.quantityConsumed,
+    draft.value.measurementUnit,
+    profile,
+    selectedInventoryItem.value?.pieceWeightGrams ?? null,
+    selectedPortionGramWeight.value,
+  );
+  return amount?.unit === 'mL' ? amount.amount : null;
 });
 const nutritionAmountLabel = computed(() => {
   if (nutritionGrams.value !== null) return `${formatQuantity(nutritionGrams.value)} g`;
@@ -775,6 +783,12 @@ function openWeeklyMealFromRoute(): void {
       const item = inventory.value.find((entry) => entry.id === ingredient.inventoryItemId);
       if (!item) throw new Error(`The inventory item for ingredient ${index + 1} is no longer available.`);
       const measurementUnit = ingredient.measurementUnit === 'pcs' ? 'pcs' : 'g';
+      const nutritionAmount = typeof ingredient.nutritionAmount === 'number'
+        && Number.isFinite(ingredient.nutritionAmount)
+        && ingredient.nutritionAmount > 0
+        && ingredient.nutritionAmount <= 50000
+        ? ingredient.nutritionAmount
+        : null;
       if (
         (measurementUnit === 'pcs' && item.unit !== 'pcs')
         || (measurementUnit === 'g' && item.unit !== 'g' && item.unit !== 'kg')
@@ -801,6 +815,8 @@ function openWeeklyMealFromRoute(): void {
         consumptionTime: getLocalTime(),
         notes: `Weekly plan: ${mealName.trim()}`,
         nutritionSnapshot: item.nutritionProfile ?? null,
+        nutritionAmount,
+        nutritionUnit: nutritionAmount === null ? null : 'g',
       };
     });
 
@@ -929,6 +945,7 @@ function openCreate(inventoryItemId?: string): void {
 }
 
 function openEdit(record: FoodConsumption): void {
+  const nutritionBasis = getNutritionBasisForRecord(record);
   editingRecord.value = record;
   directScannedProduct.value = record.inventoryItemId.startsWith('off:')
     ? {
@@ -958,8 +975,14 @@ function openEdit(record: FoodConsumption): void {
     consumptionTime: record.consumptionTime,
     notes: record.notes,
     nutritionSnapshot: record.nutritionSnapshot ?? null,
+    nutritionAmount: nutritionBasis?.amount ?? null,
+    nutritionUnit: nutritionBasis?.unit ?? null,
   };
-  selectedPortionGramWeight.value = null;
+  selectedPortionGramWeight.value = record.measurementUnit === 'pcs'
+    && nutritionBasis?.unit === 'g'
+    && nutritionBasis.amount
+    ? nutritionBasis.amount / record.quantityConsumed
+    : null;
   formErrors.value = {};
   formError.value = '';
   formOpen.value = true;
@@ -995,7 +1018,11 @@ async function saveRecord(): Promise<void> {
     draft.value.foodName = selectedInventoryItem.value.foodName;
     draft.value.foodCategory = selectedInventoryItem.value.category;
     draft.value.inventoryUnit = selectedInventoryItem.value.unit;
-    if (!editingRecord.value || editingRecord.value.inventoryItemId !== selectedInventoryItem.value.id) {
+    if (
+      !editingRecord.value
+      || editingRecord.value.inventoryItemId !== selectedInventoryItem.value.id
+      || !draft.value.nutritionSnapshot
+    ) {
       draft.value.nutritionSnapshot = selectedInventoryItem.value.nutritionProfile ?? null;
     }
   } else if (directScannedProduct.value && draft.value.inventoryItemId.startsWith('off:')) {
@@ -1007,6 +1034,18 @@ async function saveRecord(): Promise<void> {
     formErrors.value = { inventoryItemId: 'The selected inventory item is no longer available.' };
     return;
   }
+
+  const nutritionBasis = draft.value.nutritionSnapshot
+    ? getNutritionBasisAmount(
+      draft.value.quantityConsumed,
+      draft.value.measurementUnit,
+      draft.value.nutritionSnapshot,
+      selectedInventoryItem.value?.pieceWeightGrams ?? null,
+      selectedPortionGramWeight.value,
+    )
+    : null;
+  draft.value.nutritionAmount = nutritionBasis?.amount ?? null;
+  draft.value.nutritionUnit = nutritionBasis?.unit ?? null;
 
   formErrors.value = validateFoodConsumptionDraft(draft.value);
   if (Object.keys(formErrors.value).length) return;

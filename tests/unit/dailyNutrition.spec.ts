@@ -3,6 +3,7 @@ import type { FoodConsumption } from '../../src/utils/foodConsumption';
 import {
   estimateRecordCalories,
   estimateRecordMacronutrient,
+  getNutritionBasisAmount,
   getMacronutrientsForDateRange,
   getSevenDayCalories,
   summarizeDailyCalories,
@@ -104,6 +105,45 @@ describe('daily calorie tracking', () => {
       quantityConsumed: 100,
       nutritionSnapshot: nutritionProfile({ calories: 418.4, unit: 'kJ' }),
     })).caloriesKcal).toBe(100);
+  });
+
+  test('uses the logged gram basis for piece counts and keeps the selected portion weight', () => {
+    const profile = nutritionProfile({ calories: 200, macros: { protein: 10 } });
+    const pieceBasis = getNutritionBasisAmount(2, 'pcs', profile, 50);
+    expect(pieceBasis).toEqual({ amount: 100, unit: 'g' });
+    expect(estimateRecordCalories(record({
+      quantityConsumed: 2,
+      measurementUnit: 'pcs',
+      nutritionSnapshot: profile,
+      nutritionAmount: pieceBasis?.amount,
+      nutritionUnit: pieceBasis?.unit,
+    })).caloriesKcal).toBe(200);
+    expect(estimateRecordMacronutrient(record({
+      quantityConsumed: 2,
+      measurementUnit: 'pcs',
+      nutritionSnapshot: profile,
+      nutritionAmount: pieceBasis?.amount,
+      nutritionUnit: pieceBasis?.unit,
+    }), 'protein').amountG).toBe(10);
+  });
+
+  test('recovers the exact portion basis from legacy weekly-plan piece logs', () => {
+    const logged = record({
+      foodName: 'apple',
+      quantityConsumed: 1,
+      measurementUnit: 'pcs',
+      notes: 'Weekly plan: Apple',
+      nutritionSnapshot: nutritionProfile({
+        calories: 52,
+        macros: { protein: 0.3, carbohydrates: 13.8, totalFat: 0.2 },
+      }),
+    });
+
+    expect(estimateRecordCalories(logged).caloriesKcal).toBe(78);
+    expect(estimateRecordMacronutrient(logged, 'protein').amountG).toBe(0.45);
+    expect(estimateRecordMacronutrient(logged, 'carbohydrates').amountG).toBe(20.7);
+    expect(estimateRecordMacronutrient(logged, 'totalFat').amountG).toBe(0.3);
+    expect(estimateRecordMacronutrient({ ...logged, notes: '' }, 'protein').amountG).toBeNull();
   });
 
   test('uses the normalized 100g basis for branded USDA servings', () => {

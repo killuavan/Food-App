@@ -1,5 +1,6 @@
-import type { FoodConsumption, MealCategory } from './foodConsumption';
+import type { ConsumptionUnit, FoodConsumption, MealCategory, NutritionAmountUnit } from './foodConsumption';
 import type { NutritionProfile } from './usdaNutrition';
+import { recipeCatalog } from './weeklyMealRecommendations';
 
 export type CalorieDataStatus = 'no-records' | 'complete' | 'incomplete';
 
@@ -97,23 +98,83 @@ function getServingBasis(
   return null;
 }
 
-function amountInNutritionBasis(
-  record: FoodConsumption,
-  profile: NutritionProfile,
-): number | null {
-  const { quantityConsumed, measurementUnit } = record;
-  if (!Number.isFinite(quantityConsumed) || quantityConsumed <= 0) return null;
+export interface NutritionBasisAmount {
+  amount: number;
+  unit: NutritionAmountUnit;
+}
 
-  if (measurementUnit === 'g') return profile.basisGrams ? quantityConsumed : null;
-  if (measurementUnit === 'kg') return profile.basisGrams ? quantityConsumed * 1000 : null;
-  if (measurementUnit === 'mL') return profile.basisMilliliters ? quantityConsumed : null;
-  if (measurementUnit === 'L') return profile.basisMilliliters ? quantityConsumed * 1000 : null;
-  if (measurementUnit === 'servings') {
-    const serving = getServingBasis(profile, quantityConsumed);
-    if (!serving) return null;
-    if (serving.unit === 'g' && profile.basisGrams) return serving.amount;
-    if (serving.unit === 'mL' && profile.basisMilliliters) return serving.amount;
+export function getNutritionBasisAmount(
+  quantity: number,
+  measurementUnit: ConsumptionUnit,
+  profile: NutritionProfile,
+  pieceWeightGrams: number | null = null,
+  selectedPortionGramWeight: number | null = null,
+): NutritionBasisAmount | null {
+  if (!Number.isFinite(quantity) || quantity <= 0) return null;
+
+  if (measurementUnit === 'g' || measurementUnit === 'kg') {
+    if (!profile.basisGrams) return null;
+    return { amount: measurementUnit === 'kg' ? quantity * 1000 : quantity, unit: 'g' };
   }
+  if (measurementUnit === 'mL' || measurementUnit === 'L') {
+    if (!profile.basisMilliliters) return null;
+    return { amount: measurementUnit === 'L' ? quantity * 1000 : quantity, unit: 'mL' };
+  }
+  if (measurementUnit === 'servings') {
+    const serving = getServingBasis(profile, quantity);
+    if (!serving) return null;
+    if (serving.unit === 'g' && profile.basisGrams) return { amount: serving.amount, unit: 'g' };
+    if (serving.unit === 'mL' && profile.basisMilliliters) return { amount: serving.amount, unit: 'mL' };
+    return null;
+  }
+  if (measurementUnit === 'pcs') {
+    const gramsPerPiece = selectedPortionGramWeight ?? pieceWeightGrams;
+    if (!gramsPerPiece || !Number.isFinite(gramsPerPiece) || gramsPerPiece <= 0 || !profile.basisGrams) return null;
+    return { amount: quantity * gramsPerPiece, unit: 'g' };
+  }
+  return null;
+}
+
+function weeklyRecipePieceBasis(record: FoodConsumption): NutritionBasisAmount | null {
+  const match = /^Weekly plan:\s*(.+)$/i.exec(record.notes.trim());
+  if (!match || record.measurementUnit !== 'pcs') return null;
+  const recipe = recipeCatalog.find((entry) => entry.name.toLocaleLowerCase() === match[1].trim().toLocaleLowerCase());
+  if (!recipe) return null;
+  const foodName = record.foodName.trim().toLocaleLowerCase();
+  const ingredient = recipe.ingredients.find((entry) => (
+    entry.foodName.toLocaleLowerCase() === foodName
+    || entry.aliases.some((alias) => alias.toLocaleLowerCase() === foodName)
+  ));
+  if (!ingredient) return null;
+  const gramsPerPiece = ingredient.pieceWeightGrams
+    ?? (ingredient.amountPieces ? ingredient.amountGrams / ingredient.amountPieces : null);
+  if (!gramsPerPiece || !Number.isFinite(gramsPerPiece) || gramsPerPiece <= 0) return null;
+  return { amount: Number((record.quantityConsumed * gramsPerPiece).toFixed(4)), unit: 'g' };
+}
+
+export function getNutritionBasisForRecord(record: FoodConsumption): NutritionBasisAmount | null {
+  const profile = record.nutritionSnapshot;
+  if (!profile || !Number.isFinite(record.quantityConsumed) || record.quantityConsumed <= 0) return null;
+  const savedUnit = record.nutritionUnit;
+  if (typeof record.nutritionAmount === 'number'
+    && Number.isFinite(record.nutritionAmount)
+    && record.nutritionAmount > 0) {
+    if (savedUnit === 'g' && profile.basisGrams) {
+      return { amount: record.nutritionAmount, unit: 'g' };
+    }
+    if (savedUnit === 'mL' && profile.basisMilliliters) {
+      return { amount: record.nutritionAmount, unit: 'mL' };
+    }
+  }
+  if (record.measurementUnit === 'pcs' && profile.basisGrams) {
+    return weeklyRecipePieceBasis(record);
+  }
+  const amount = getNutritionBasisAmount(
+    record.quantityConsumed,
+    record.measurementUnit,
+    profile,
+  );
+  if (amount) return amount;
   return null;
 }
 
@@ -134,15 +195,10 @@ export function estimateRecordMacronutrient(
   if (nutrient.unit.trim().toLocaleLowerCase() !== unit) {
     return { amountG: null, reason: 'unsupported-unit' };
   }
-  const amount = amountInNutritionBasis(record, profile);
-  if (amount === null) return { amountG: null, reason: 'unsupported-unit' };
-  const massBased = record.measurementUnit === 'g'
-    || record.measurementUnit === 'kg'
-    || (record.measurementUnit === 'servings' && getServingBasis(profile, record.quantityConsumed)?.unit === 'g');
-  const hasBasis = massBased ? profile.basisGrams != null : profile.basisMilliliters != null;
-  if (!hasBasis) return { amountG: null, reason: 'unsupported-unit' };
+  const basis = getNutritionBasisForRecord(record);
+  if (!basis) return { amountG: null, reason: 'unsupported-unit' };
   return {
-    amountG: Number(((nutrient.amount * amount) / 100).toFixed(4)),
+    amountG: Number(((nutrient.amount * basis.amount) / 100).toFixed(4)),
     reason: 'available',
   };
 }
@@ -297,19 +353,12 @@ export function estimateRecordCalories(record: FoodConsumption): CalorieEstimate
     return { caloriesKcal: null, reason: 'missing-calories' };
   }
 
-  const basisAmount = amountInNutritionBasis(record, profile);
-  if (basisAmount === null) return { caloriesKcal: null, reason: 'unsupported-unit' };
-  const isMass = record.measurementUnit === 'g'
-    || record.measurementUnit === 'kg'
-    || (record.measurementUnit === 'servings' && getServingBasis(profile, record.quantityConsumed)?.unit === 'g');
-  const hasNutritionBasis = isMass ? profile.basisGrams != null : profile.basisMilliliters != null;
-  if (!hasNutritionBasis) {
-    return { caloriesKcal: null, reason: 'unsupported-unit' };
-  }
+  const nutritionBasis = getNutritionBasisForRecord(record);
+  if (!nutritionBasis) return { caloriesKcal: null, reason: 'unsupported-unit' };
   // USDA and Open Food Facts profiles normalize nutrient amounts to a 100 g or 100 mL basis.
   const basis = 100;
   return {
-    caloriesKcal: Number(((calories * basisAmount) / basis).toFixed(2)),
+    caloriesKcal: Number(((calories * nutritionBasis.amount) / basis).toFixed(2)),
     reason: 'available',
   };
 }

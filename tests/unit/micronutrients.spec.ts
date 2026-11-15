@@ -82,6 +82,39 @@ describe('micronutrient tracking', () => {
       .toMatchObject({ amount: 1, unit: 'µg', comparable: true });
   });
 
+  test('uses the saved nutrition basis for piece-counted foods', () => {
+    const logged = record({
+      quantityConsumed: 1,
+      measurementUnit: 'pcs',
+      nutritionAmount: 118,
+      nutritionUnit: 'g',
+      nutritionSnapshot: profile({
+        '401': { amount: 8.7, unit: 'mg', name: 'Vitamin C' },
+        '306': { amount: 358, unit: 'mg', name: 'Potassium' },
+      }),
+    });
+
+    expect(estimateRecordMicronutrient(logged, 'vitaminC'))
+      .toMatchObject({ amount: 10.266, unit: 'mg', comparable: true });
+    expect(estimateRecordMicronutrient(logged, 'potassium'))
+      .toMatchObject({ amount: 422.44, unit: 'mg', comparable: true });
+  });
+
+  test('recovers micronutrients from a legacy weekly-plan piece log', () => {
+    const logged = record({
+      foodName: 'apple',
+      quantityConsumed: 1,
+      measurementUnit: 'pcs',
+      notes: 'Weekly plan: Apple',
+      nutritionSnapshot: profile({
+        '401': { amount: 4.6, unit: 'mg', name: 'Vitamin C' },
+      }),
+    });
+
+    expect(estimateRecordMicronutrient(logged, 'vitaminC'))
+      .toMatchObject({ amount: 6.9, unit: 'mg', comparable: true });
+  });
+
   test('preserves incomparable vitamin A and folate forms without false conversions', () => {
     const rae = record({
       quantityConsumed: 100,
